@@ -1,9 +1,95 @@
 <script>
-	// Current environmental readings (matching the screenshot)
-	export let temperature = 29.7;
-	export let temperatureAvg = 25.52;
-	export let humidity = 87;
-	export let humidityAvg = 68.99;
+	import { onMount } from "svelte";
+
+	// Current environmental readings
+	let temperature = 29.7;
+	let temperatureAvg = 25.52;
+	let humidity = 87;
+	let humidityAvg = 68.99;
+	let status = "NORMAL";
+	let lastUpdate = "3:00 PM";
+	let loading = true;
+
+	// Function to fetch current metrics from QuestDB
+	async function fetchCurrentMetrics() {
+		try {
+			console.log("MetricCards: Attempting to fetch metrics via proxy API");
+
+			// Get current readings (latest record)
+			const currentQuery = `SELECT temperature, humidity, ts FROM hawak WHERE device_id='DHT11' ORDER BY ts DESC LIMIT 1`;
+
+			// Get averages for last 24 hours
+			const avgQuery = `SELECT AVG(temperature) as temp_avg, AVG(humidity) as humid_avg FROM hawak WHERE device_id='DHT11' AND ts > dateadd('h', -24, now())`;
+
+			console.log("Fetching current and average data via proxy...");
+
+			const [currentResponse, avgResponse] = await Promise.all([fetch(`/api/questdb?query=${encodeURIComponent(currentQuery)}`), fetch(`/api/questdb?query=${encodeURIComponent(avgQuery)}`)]);
+
+			console.log("Current response status:", currentResponse.status);
+			console.log("Average response status:", avgResponse.status);
+
+			if (currentResponse.ok) {
+				const currentResult = await currentResponse.json();
+				console.log("Current data:", currentResult);
+				if (currentResult.dataset && currentResult.dataset.length > 0) {
+					const [temp, humid, timestamp] = currentResult.dataset[0];
+					temperature = parseFloat(temp).toFixed(1);
+					humidity = Math.round(parseFloat(humid));
+
+					// Convert UTC timestamp to UTC+8 and format
+					const utcDate = new Date(timestamp);
+					const localDate = new Date(utcDate.getTime() + 8 * 60 * 60 * 1000);
+					lastUpdate = localDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+				}
+			}
+
+			if (avgResponse.ok) {
+				const avgResult = await avgResponse.json();
+				console.log("Average data:", avgResult);
+				if (avgResult.dataset && avgResult.dataset.length > 0) {
+					const [tempAvg, humidAvg] = avgResult.dataset[0];
+					temperatureAvg = parseFloat(tempAvg).toFixed(2);
+					humidityAvg = parseFloat(humidAvg).toFixed(2);
+				}
+			}
+
+			// Determine status based on readings
+			status = determineStatus(temperature, humidity);
+		} catch (error) {
+			console.error("Error fetching metrics:", error);
+			console.error("Error details:", error.message);
+			console.error("Error name:", error.name);
+			// Keep default values as fallback
+		} finally {
+			loading = false;
+		}
+	}
+
+	// Function to determine system status
+	function determineStatus(temp, humid) {
+		const t = parseFloat(temp);
+		const h = parseFloat(humid);
+
+		// Define normal ranges
+		const tempNormal = t >= 18 && t <= 35;
+		const humidNormal = h >= 30 && h <= 80;
+
+		if (tempNormal && humidNormal) {
+			return "NORMAL";
+		} else if (t > 40 || h > 90) {
+			return "CRITICAL";
+		} else {
+			return "WARNING";
+		}
+	}
+
+	onMount(() => {
+		fetchCurrentMetrics();
+
+		// Update every 30 seconds
+		const interval = setInterval(fetchCurrentMetrics, 30000);
+		return () => clearInterval(interval);
+	});
 </script>
 
 <div class="metrics-grid">
@@ -34,12 +120,30 @@
 	<!-- Status Card -->
 	<div class="metric-card">
 		<div class="metric-header">
-			<svg class="metric-icon" viewBox="0 0 24 24" fill="#4CAF50">
-				<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
+			<svg class="metric-icon" viewBox="0 0 24 24" fill={status === "NORMAL" ? "#4CAF50" : status === "WARNING" ? "#FF9800" : "#F44336"}>
+				{#if status === "NORMAL"}
+					<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
+				{:else if status === "WARNING"}
+					<path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z" />
+				{:else}
+					<path d="M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z" />
+				{/if}
 			</svg>
 			<span class="metric-label">Status</span>
 		</div>
-		<div class="metric-value status">NORMAL</div>
-		<div class="status-details">as of 3:00 PM</div>
+		<div class="metric-value status" class:warning={status === "WARNING"} class:critical={status === "CRITICAL"}>
+			{loading ? "LOADING..." : status}
+		</div>
+		<div class="status-details">as of {lastUpdate}</div>
 	</div>
 </div>
+
+<style>
+	.metric-value.warning {
+		color: #ff9800;
+	}
+
+	.metric-value.critical {
+		color: #f44336;
+	}
+</style>

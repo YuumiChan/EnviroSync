@@ -7,40 +7,125 @@
 
 	let chartCanvas;
 	let chart;
+	let loading = true;
+	let error = null;
 
-	// Sample data that matches the design
-	const generateTimeData = () => {
+	// Test function to check QuestDB connectivity
+	async function testConnection() {
+		try {
+			console.log(`Testing connection via proxy API`);
+
+			const testQuery = "SELECT 1";
+			const url = `/api/questdb?query=${encodeURIComponent(testQuery)}`;
+
+			// Use the same minimal fetch configuration that worked in console
+			const response = await fetch(url);
+
+			if (response.ok) {
+				const result = await response.json();
+				console.log(`✅ Connection successful via proxy`, result);
+				return true;
+			}
+		} catch (err) {
+			console.log(`❌ Failed to connect via proxy - ${err.message}`);
+		}
+
+		return false;
+	}
+
+	let workingUrl = null;
+
+	// Function to fetch data from QuestDB
+	async function fetchEnvironmentalData() {
+		try {
+			console.log("Attempting to fetch via proxy API");
+
+			// QuestDB HTTP API query to get last 24 hours of data with UTC+8 timezone
+			const query = `SELECT ts, temperature, humidity FROM hawak WHERE device_id='DHT11' AND ts > dateadd('h', -24, now()) ORDER BY ts ASC`;
+
+			const url = `/api/questdb?query=${encodeURIComponent(query)}`;
+			console.log("Proxy URL:", url);
+
+			// Use simple fetch like the working console test
+			const response = await fetch(url);
+
+			console.log("Response status:", response.status);
+
+			if (!response.ok) {
+				throw new Error(`HTTP error! status: ${response.status}`);
+			}
+
+			const result = await response.json();
+			console.log("QuestDB response via proxy:", result);
+
+			if (result.dataset && result.dataset.length > 0) {
+				return result.dataset.map((row) => ({
+					// Convert UTC timestamp to UTC+8 for display
+					timestamp: new Date(new Date(row[0]).getTime() + 8 * 60 * 60 * 1000),
+					temperature: parseFloat(row[1]) || 0,
+					humidity: parseFloat(row[2]) || 0,
+				}));
+			}
+
+			return [];
+		} catch (err) {
+			console.error("Error fetching data from QuestDB via proxy:", err);
+			console.error("Error details:", err.message);
+			error = err.message;
+
+			// Return sample data as fallback
+			return generateSampleData();
+		}
+	}
+
+	// Fallback sample data
+	function generateSampleData() {
 		const now = new Date();
 		const data = [];
 
-		// Generate data for the last 24 hours
+		const tempValues = [8, 12, 18, 25, 30, 35, 38, 40, 45, 48, 52, 55, 50, 45, 42, 38, 35, 32, 28, 25, 22, 20, 18, 15, 12];
+		const humidityValues = [15, 20, 22, 25, 30, 40, 50, 55, 60, 65, 68, 70, 65, 60, 55, 50, 45, 40, 35, 30, 28, 25, 22, 20, 18];
+
 		for (let i = 24; i >= 0; i--) {
 			const time = new Date(now.getTime() - i * 60 * 60 * 1000);
-			data.push(time);
+			data.push({
+				timestamp: time,
+				temperature: tempValues[24 - i] || 25,
+				humidity: humidityValues[24 - i] || 50,
+			});
 		}
 
 		return data;
-	};
+	}
 
-	const timeLabels = generateTimeData();
-
-	// Temperature data (matches the orange line in the screenshot)
-	const temperatureData = [8, 12, 18, 25, 30, 35, 38, 40, 45, 48, 52, 55, 50, 45, 42, 38, 35, 32, 28, 25, 22, 20, 18, 15, 12];
-
-	// Humidity data (matches the blue line in the screenshot)
-	const humidityData = [15, 20, 22, 25, 30, 40, 50, 55, 60, 65, 68, 70, 65, 60, 55, 50, 45, 40, 35, 30, 28, 25, 22, 20, 18];
-
-	onMount(() => {
+	onMount(async () => {
 		const ctx = chartCanvas.getContext("2d");
+
+		// Test connection first to find working URL
+		const connectionWorking = await testConnection();
+
+		if (connectionWorking) {
+			console.log(`🎉 Proxy API is working`);
+		} else {
+			console.log("⚠️ No working connection found, using fallback data");
+		}
+
+		// Fetch data from QuestDB
+		const environmentalData = await fetchEnvironmentalData();
+		loading = false;
+
+		const timestamps = environmentalData.map((d) => d.timestamp);
+		const temperatures = environmentalData.map((d) => d.temperature);
+		const humidities = environmentalData.map((d) => d.humidity);
 
 		chart = new Chart(ctx, {
 			type: "line",
 			data: {
-				labels: timeLabels,
+				labels: timestamps,
 				datasets: [
 					{
 						label: "Temperature",
-						data: temperatureData,
+						data: temperatures,
 						borderColor: "#FF6B47",
 						backgroundColor: "rgba(255, 107, 71, 0.1)",
 						borderWidth: 2,
@@ -51,7 +136,7 @@
 					},
 					{
 						label: "Humidity",
-						data: humidityData,
+						data: humidities,
 						borderColor: "#4A90E2",
 						backgroundColor: "rgba(74, 144, 226, 0.1)",
 						borderWidth: 2,
@@ -109,7 +194,7 @@
 					},
 					y: {
 						beginAtZero: true,
-						max: 80,
+						max: 105,
 						grid: {
 							color: "rgba(68, 68, 68, 0.3)",
 							lineWidth: 1,
@@ -134,8 +219,28 @@
 	<div class="chart-title">
 		<span class="chart-indicator"></span>
 		Humidity & Temperature Graph
+		{#if loading}
+			<span class="loading-indicator">Loading...</span>
+		{/if}
+		{#if error}
+			<span class="error-indicator">Using fallback data</span>
+		{/if}
 	</div>
 	<div class="chart-wrapper">
 		<canvas bind:this={chartCanvas}></canvas>
 	</div>
 </div>
+
+<style>
+	.loading-indicator {
+		font-size: 12px;
+		color: #4a90e2;
+		margin-left: 8px;
+	}
+
+	.error-indicator {
+		font-size: 12px;
+		color: #ff6b47;
+		margin-left: 8px;
+	}
+</style>
