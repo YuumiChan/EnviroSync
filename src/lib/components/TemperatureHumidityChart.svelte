@@ -1,7 +1,9 @@
 <script>
 	import { Chart, registerables } from "chart.js";
 	import "chartjs-adapter-date-fns";
-	import { onMount } from "svelte";
+	import { onDestroy, onMount } from "svelte";
+
+	export let selectedDevice = "DHT11"; // Default to DHT11 if no device selected
 
 	Chart.register(...registerables);
 
@@ -9,6 +11,8 @@
 	let chart;
 	let loading = true;
 	let error = null;
+	let updateTimeout;
+	let refreshInterval;
 
 	// Test function to check QuestDB connectivity
 	async function testConnection() {
@@ -38,10 +42,10 @@
 	// Function to fetch data from QuestDB
 	async function fetchEnvironmentalData() {
 		try {
-			console.log("Attempting to fetch via proxy API");
+			console.log(`Attempting to fetch data for device: ${selectedDevice}`);
 
-			// QuestDB HTTP API query to get last 24 hours of data with UTC+8 timezone
-			const query = `SELECT ts, temperature, humidity FROM hawak WHERE device_id='DHT11' AND ts > dateadd('h', -24, now()) ORDER BY ts ASC`;
+			// QuestDB HTTP API query to get last 24 hours of data for the selected device
+			const query = `SELECT ts, temperature, humidity FROM hawak WHERE device_id='${selectedDevice}' AND ts > dateadd('h', -24, now()) ORDER BY ts ASC`;
 
 			const url = `/api/questdb?query=${encodeURIComponent(query)}`;
 			console.log("Proxy URL:", url);
@@ -98,6 +102,49 @@
 		return data;
 	}
 
+	// Reactive function to update chart when device changes
+	async function updateChart() {
+		if (!chart) return;
+
+		loading = true;
+		const environmentalData = await fetchEnvironmentalData();
+		loading = false;
+
+		const timestamps = environmentalData.map((d) => d.timestamp);
+		const temperatures = environmentalData.map((d) => d.temperature);
+		const humidities = environmentalData.map((d) => d.humidity);
+
+		// Update chart data
+		chart.data.labels = timestamps;
+		chart.data.datasets[0].data = temperatures;
+		chart.data.datasets[1].data = humidities;
+		chart.update();
+	}
+
+	let previousDevice = null;
+
+	// Reactive statement - only update chart when selectedDevice changes (no auto-refresh)
+	$: if (selectedDevice && chart && selectedDevice !== previousDevice) {
+		console.log(`Chart: Device changed from ${previousDevice} to ${selectedDevice}`);
+
+		// Clear previous timeout and interval
+		if (updateTimeout) {
+			clearTimeout(updateTimeout);
+		}
+		if (refreshInterval) {
+			clearInterval(refreshInterval);
+		}
+
+		// Update tracking variable
+		previousDevice = selectedDevice;
+
+		// Debounce the update to prevent rapid requests
+		updateTimeout = setTimeout(() => {
+			updateChart();
+			// No automatic refresh - only manual refresh button
+		}, 300);
+	}
+
 	onMount(async () => {
 		const ctx = chartCanvas.getContext("2d");
 
@@ -131,7 +178,7 @@
 						borderWidth: 2,
 						pointRadius: 0,
 						pointHoverRadius: 4,
-						tension: 0.4,
+						tension: 0.6,
 						fill: false,
 					},
 					{
@@ -142,7 +189,7 @@
 						borderWidth: 2,
 						pointRadius: 0,
 						pointHoverRadius: 4,
-						tension: 0.4,
+						tension: 0.6,
 						fill: false,
 					},
 				],
@@ -212,13 +259,34 @@
 		});
 	});
 
+	onDestroy(() => {
+		if (updateTimeout) {
+			clearTimeout(updateTimeout);
+		}
+		if (refreshInterval) {
+			clearInterval(refreshInterval);
+		}
+		if (chart) {
+			chart.destroy();
+		}
+	});
+
 	export { chart };
+
+	// Manual refresh function
+	async function manualRefresh() {
+		if (chart && selectedDevice) {
+			console.log(`Manual refresh for ${selectedDevice}...`);
+			await updateChart();
+		}
+	}
 </script>
 
 <div class="chart-container">
 	<div class="chart-title">
 		<span class="chart-indicator"></span>
 		Humidity & Temperature Graph
+		<button class="refresh-button" on:click={manualRefresh} disabled={loading}> 🔄 Refresh </button>
 		{#if loading}
 			<span class="loading-indicator">Loading...</span>
 		{/if}
@@ -232,6 +300,59 @@
 </div>
 
 <style>
+	.chart-container {
+		background: rgba(0, 0, 0, 0.3);
+		border-radius: 12px;
+		padding: 1.5rem;
+		border: 1px solid rgba(74, 144, 226, 0.2);
+		margin-bottom: 2rem;
+		width: 100%;
+	}
+
+	.chart-wrapper {
+		position: relative;
+		height: 400px;
+		margin-top: 1rem;
+	}
+
+	.chart-title {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		color: #fff;
+		font-size: 1.1rem;
+		font-weight: 600;
+		margin-bottom: 0.5rem;
+	}
+
+	.chart-indicator {
+		width: 10px;
+		height: 10px;
+		border-radius: 50%;
+		background: linear-gradient(45deg, #ff6b47, #4a90e2);
+	}
+
+	.refresh-button {
+		background: #4a90e2;
+		color: white;
+		border: none;
+		padding: 4px 8px;
+		border-radius: 4px;
+		cursor: pointer;
+		font-size: 11px;
+		margin-left: auto;
+		transition: background 0.2s;
+	}
+
+	.refresh-button:hover:not(:disabled) {
+		background: #357abd;
+	}
+
+	.refresh-button:disabled {
+		background: #666;
+		cursor: not-allowed;
+	}
+
 	.loading-indicator {
 		font-size: 12px;
 		color: #4a90e2;

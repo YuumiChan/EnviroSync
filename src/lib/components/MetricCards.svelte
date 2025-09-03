@@ -1,5 +1,7 @@
 <script>
-	import { onMount } from "svelte";
+	import { onDestroy, onMount } from "svelte";
+
+	export let selectedDevice = "DHT11"; // Default to DHT11 if no device selected
 
 	// Current environmental readings
 	let temperature = 29.7;
@@ -9,17 +11,18 @@
 	let status = "NORMAL";
 	let lastUpdate = "3:00 PM";
 	let loading = true;
+	let metricsTimeout;
 
 	// Function to fetch current metrics from QuestDB
 	async function fetchCurrentMetrics() {
 		try {
-			console.log("MetricCards: Attempting to fetch metrics via proxy API");
+			console.log(`MetricCards: Attempting to fetch metrics for device: ${selectedDevice}`);
 
 			// Get current readings (latest record)
-			const currentQuery = `SELECT temperature, humidity, ts FROM hawak WHERE device_id='DHT11' ORDER BY ts DESC LIMIT 1`;
+			const currentQuery = `SELECT temperature, humidity, ts FROM hawak WHERE device_id='${selectedDevice}' ORDER BY ts DESC LIMIT 1`;
 
 			// Get averages for last 24 hours
-			const avgQuery = `SELECT AVG(temperature) as temp_avg, AVG(humidity) as humid_avg FROM hawak WHERE device_id='DHT11' AND ts > dateadd('h', -24, now())`;
+			const avgQuery = `SELECT AVG(temperature) as temp_avg, AVG(humidity) as humid_avg FROM hawak WHERE device_id='${selectedDevice}' AND ts > dateadd('h', -24, now())`;
 
 			console.log("Fetching current and average data via proxy...");
 
@@ -83,16 +86,39 @@
 		}
 	}
 
+	// Reactive statement with debounce - update metrics when selectedDevice changes
+	$: if (selectedDevice) {
+		// Clear previous timeout
+		if (metricsTimeout) {
+			clearTimeout(metricsTimeout);
+		}
+		// Debounce the update to prevent rapid requests
+		metricsTimeout = setTimeout(() => {
+			fetchCurrentMetrics();
+		}, 350); // Slightly different delay to stagger requests
+	}
+
 	onMount(() => {
 		fetchCurrentMetrics();
 
-		// Update every 30 seconds
-		const interval = setInterval(fetchCurrentMetrics, 30000);
-		return () => clearInterval(interval);
+		// No automatic refresh - only load on mount
+		// const interval = setInterval(fetchCurrentMetrics, 15000);
+		// return () => clearInterval(interval);
 	});
+
+	onDestroy(() => {
+		if (metricsTimeout) {
+			clearTimeout(metricsTimeout);
+		}
+	});
+
+	// Manual refresh function
+	async function manualRefresh() {
+		await fetchCurrentMetrics();
+	}
 </script>
 
-<div class="metrics-grid">
+<div class="metrics-container">
 	<!-- Temperature Card -->
 	<div class="metric-card">
 		<div class="metric-header">
@@ -139,11 +165,74 @@
 </div>
 
 <style>
+	.metrics-container {
+		display: contents;
+	}
+
+	.metric-card {
+		background: rgba(0, 0, 0, 0.3);
+		border-radius: 8px;
+		padding: 1rem;
+		border: 1px solid rgba(74, 144, 226, 0.2);
+		transition: all 0.3s ease;
+	}
+
+	.metric-card:hover {
+		border-color: #4a90e2;
+		transform: translateY(-2px);
+		box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+	}
+
+	.metric-header {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		margin-bottom: 0.7rem;
+	}
+
+	.metric-icon {
+		width: 20px;
+		height: 20px;
+		flex-shrink: 0;
+	}
+
+	.metric-label {
+		font-size: 1.1rem;
+		color: #b0b0b0;
+		font-weight: 500;
+	}
+
+	.metric-value {
+		font-size: 2.2rem;
+		font-weight: bold;
+		margin-bottom: 0.3rem;
+		color: #fff;
+	}
+
+	.metric-value.temperature {
+		color: #ff6b47;
+	}
+
+	.metric-value.humidity {
+		color: #4a90e2;
+	}
+
+	.metric-value.status {
+		color: #4caf50;
+		font-size: 1.4rem;
+	}
+
 	.metric-value.warning {
 		color: #ff9800;
 	}
 
 	.metric-value.critical {
 		color: #f44336;
+	}
+
+	.metric-average,
+	.status-details {
+		font-size: 1rem;
+		color: #888;
 	}
 </style>
