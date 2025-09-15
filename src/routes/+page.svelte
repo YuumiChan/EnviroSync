@@ -4,6 +4,7 @@
 	import MetricCards from "$lib/components/MetricCards.svelte";
 	import Sidebar from "$lib/components/Sidebar.svelte";
 	import TemperatureHumidityChart from "$lib/components/TemperatureHumidityChart.svelte";
+	import ConnectionStatus from "$lib/components/ConnectionStatus.svelte";
 
 	let selectedDevice = null;
 	let showDashboard = false;
@@ -31,10 +32,7 @@
 			</div>
 
 			<div class="user-info">
-				<div class="connection-status">
-					<div class="status-dot"></div>
-					<span>Connected</span>
-				</div>
+				<ConnectionStatus />
 				<div class="username">Sir Renz</div>
 				<div class="user-avatar">R</div>
 			</div>

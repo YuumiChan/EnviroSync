@@ -1,5 +1,6 @@
 <script>
 	import { createEventDispatcher, onMount } from "svelte";
+	import { cacheManager, CACHE_KEYS } from "$lib/cache.js";
 
 	const dispatch = createEventDispatcher();
 
@@ -14,8 +15,36 @@
 		try {
 			console.log("Fetching available devices...");
 
+			// Try to get from cache first
+			const cachedDevices = cacheManager.get(CACHE_KEYS.DEVICES);
+			if (cachedDevices) {
+				console.log("Using cached devices:", cachedDevices);
+				devices = cachedDevices;
+				error = null;
+				
+				// Fetch device data for cached devices
+				await fetchDeviceData();
+				loading = false;
+				
+				// Continue with fresh fetch in background
+				fetchDevicesFromAPI();
+				return;
+			}
+
+			// No cache, fetch from API
+			await fetchDevicesFromAPI();
+		} catch (err) {
+			console.error("Error in fetchDevices:", err);
+			error = "Something is wrong";
+			devices = [];
+			loading = false;
+		}
+	}
+
+	async function fetchDevicesFromAPI() {
+		try {
 			// Get distinct device IDs
-			const devicesQuery = `SELECT DISTINCT device_id FROM hawak WHERE is_deleted != true`;
+			const devicesQuery = `SELECT DISTINCT device_id FROM hawak`;
 			const devicesResponse = await fetch(`/api/questdb?query=${encodeURIComponent(devicesQuery)}`);
 
 			if (devicesResponse.ok) {
@@ -23,27 +52,32 @@
 				console.log("Devices result:", devicesResult);
 
 				if (devicesResult.dataset && devicesResult.dataset.length > 0) {
-					devices = devicesResult.dataset.map((row) => row[0]).sort(); // Sort alphabetically
-					console.log("Found devices (sorted):", devices);
+					const freshDevices = devicesResult.dataset.map((row) => row[0]).sort();
+					console.log("Found devices (sorted):", freshDevices);
+					
+					// Cache the devices for 10 minutes
+					cacheManager.set(CACHE_KEYS.DEVICES, freshDevices, 10 * 60 * 1000);
+					
+					devices = freshDevices;
+					error = null;
 
 					// Fetch current data for each device
 					await fetchDeviceData();
 				} else {
-					// Fallback devices if no data
-					devices = ["AHT10", "DHT11", "DHT22"].sort(); // Sort alphabetically
-					console.log("Using fallback devices");
-					setFallbackData();
+					// No data found
+					console.log("No devices found in database");
+					error = "Something is wrong";
+					devices = [];
 				}
 			} else {
 				console.error("Failed to fetch devices");
-				devices = ["AHT10", "DHT11", "DHT22"].sort(); // Sort alphabetically
-				setFallbackData();
+				error = "Something is wrong";
+				devices = [];
 			}
 		} catch (err) {
-			console.error("Error fetching devices:", err);
-			error = err.message;
-			devices = ["AHT10", "DHT11", "DHT22"].sort(); // Sort alphabetically
-			setFallbackData();
+			console.error("Error fetching devices from API:", err);
+			error = "Something is wrong";
+			devices = [];
 		} finally {
 			loading = false;
 		}
@@ -52,6 +86,15 @@
 	async function fetchDeviceData() {
 		try {
 			const promises = devices.map(async (deviceId) => {
+				// Try cache first
+				const cacheKey = CACHE_KEYS.DEVICE_DATA(deviceId);
+				const cachedData = cacheManager.get(cacheKey);
+				
+				if (cachedData) {
+					return cachedData;
+				}
+
+				// Fetch from API
 				const query = `SELECT temperature, humidity, ts FROM hawak WHERE device_id='${deviceId}' ORDER BY ts DESC LIMIT 1`;
 				const response = await fetch(`/api/questdb?query=${encodeURIComponent(query)}`);
 
@@ -59,20 +102,24 @@
 					const result = await response.json();
 					if (result.dataset && result.dataset.length > 0) {
 						const [temp, humid, timestamp] = result.dataset[0];
-						return {
+						const deviceData = {
 							deviceId,
-							temperature: parseFloat(temp).toFixed(1),
-							humidity: Math.round(parseFloat(humid)),
+							temperature: parseFloat(temp).toFixed(2), // 2 decimal places
+							humidity: parseFloat(humid).toFixed(1), // 1 decimal place
 							lastUpdate: new Date(timestamp),
 						};
+
+						// Cache for 2 minutes
+						cacheManager.set(cacheKey, deviceData, 2 * 60 * 1000);
+						return deviceData;
 					}
 				}
 
 				// Return fallback data if no real data
 				return {
 					deviceId,
-					temperature: "29.7",
-					humidity: 87,
+					temperature: "29.70", // 2 decimal places
+					humidity: "87.0", // 1 decimal place
 					lastUpdate: new Date(),
 				};
 			});
@@ -91,8 +138,8 @@
 		devices.forEach((deviceId) => {
 			deviceData[deviceId] = {
 				deviceId,
-				temperature: "29.7",
-				humidity: 87,
+				temperature: "29.70", // 2 decimal places
+				humidity: "87.0", // 1 decimal place
 				lastUpdate: new Date(),
 			};
 		});
@@ -130,14 +177,14 @@
 						<div class="metric">
 							<div class="metric-icon">🌡️</div>
 							<div class="metric-value temperature">
-								{deviceData[deviceId]?.temperature || "29.7"}°C
+								{deviceData[deviceId]?.temperature || "??.??"}°C
 							</div>
 						</div>
 
 						<div class="metric">
 							<div class="metric-icon">💧</div>
 							<div class="metric-value humidity">
-								{deviceData[deviceId]?.humidity || 87}%
+								{deviceData[deviceId]?.humidity || "??.?"}%
 							</div>
 						</div>
 					</div>
@@ -204,8 +251,8 @@
 
 	.devices-grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-		gap: 1.5rem;
+		grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+		gap: 2rem;
 		margin-top: 2rem;
 	}
 
@@ -213,7 +260,7 @@
 		background: #2d2d2d;
 		border: 1px solid #404040;
 		border-radius: 12px;
-		padding: 1.5rem;
+		padding: 2.5rem;
 		cursor: pointer;
 		transition: all 0.3s ease;
 		text-align: left;
@@ -221,7 +268,8 @@
 		font-family: inherit;
 		display: flex;
 		flex-direction: column;
-		gap: 1rem;
+		gap: 1.5rem;
+		min-height: 200px;
 	}
 
 	.device-card:hover {
@@ -232,7 +280,7 @@
 	}
 
 	.device-header h3 {
-		font-size: 1.5rem;
+		font-size: 1.8rem;
 		font-weight: 600;
 		margin: 0;
 		color: #fff;
@@ -242,27 +290,27 @@
 	.device-metrics {
 		display: flex;
 		flex-direction: column;
-		gap: 1rem;
+		gap: 1.5rem;
 		align-items: center;
 	}
 
 	.metric {
 		display: flex;
 		align-items: center;
-		gap: 1rem;
+		gap: 1.5rem;
 		justify-content: center;
 		width: 100%;
 	}
 
 	.metric-icon {
-		font-size: 1.8rem;
+		font-size: 2.2rem;
 		opacity: 0.9;
-		width: 2.5rem;
+		width: 3rem;
 		text-align: center;
 	}
 
 	.metric-value {
-		font-size: 2rem;
+		font-size: 2.4rem;
 		font-weight: 700;
 		letter-spacing: -0.02em;
 	}
@@ -278,12 +326,13 @@
 	@media (max-width: 768px) {
 		.devices-grid {
 			grid-template-columns: 1fr;
-			gap: 1rem;
+			gap: 1.5rem;
 			margin-top: 1rem;
 		}
 
 		.device-card {
-			padding: 1.5rem;
+			padding: 2rem;
+			min-height: 180px;
 		}
 	}
 </style>

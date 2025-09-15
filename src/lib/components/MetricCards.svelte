@@ -1,13 +1,14 @@
 <script>
 	import { onDestroy, onMount } from "svelte";
+	import { cacheManager, CACHE_KEYS } from "$lib/cache.js";
 
 	export let selectedDevice = "DHT11"; // Default to DHT11 if no device selected
 
 	// Current environmental readings
-	let temperature = 29.7;
-	let temperatureAvg = 25.52;
-	let humidity = 87;
-	let humidityAvg = 68.99;
+	let temperature = "29.70"; // 2 decimal places
+	let temperatureAvg = "25.52";
+	let humidity = "87.0"; // 1 decimal place
+	let humidityAvg = "68.99";
 	let status = "NORMAL";
 	let lastUpdate = "3:00 PM";
 	let loading = true;
@@ -17,6 +18,22 @@
 	async function fetchCurrentMetrics() {
 		try {
 			console.log(`MetricCards: Attempting to fetch metrics for device: ${selectedDevice}`);
+
+			// Try cache first
+			const cacheKey = CACHE_KEYS.METRICS(selectedDevice);
+			const cachedMetrics = cacheManager.get(cacheKey);
+			
+			if (cachedMetrics) {
+				console.log("Using cached metrics");
+				temperature = cachedMetrics.temperature;
+				temperatureAvg = cachedMetrics.temperatureAvg;
+				humidity = cachedMetrics.humidity;
+				humidityAvg = cachedMetrics.humidityAvg;
+				status = cachedMetrics.status;
+				lastUpdate = cachedMetrics.lastUpdate;
+				loading = false;
+				return;
+			}
 
 			// Get current readings (latest record)
 			const currentQuery = `SELECT temperature, humidity, ts FROM hawak WHERE device_id='${selectedDevice}' ORDER BY ts DESC LIMIT 1`;
@@ -36,13 +53,12 @@
 				console.log("Current data:", currentResult);
 				if (currentResult.dataset && currentResult.dataset.length > 0) {
 					const [temp, humid, timestamp] = currentResult.dataset[0];
-					temperature = parseFloat(temp).toFixed(1);
-					humidity = Math.round(parseFloat(humid));
+					temperature = parseFloat(temp).toFixed(2); // 2 decimal places
+					humidity = parseFloat(humid).toFixed(1); // 1 decimal place
 
-					// Convert UTC timestamp to UTC+8 and format
-					const utcDate = new Date(timestamp);
-					const localDate = new Date(utcDate.getTime() + 8 * 60 * 60 * 1000);
-					lastUpdate = localDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+					// Use timestamp as-is from database
+					const dbDate = new Date(timestamp);
+					lastUpdate = dbDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 				}
 			}
 
@@ -58,11 +74,41 @@
 
 			// Determine status based on readings
 			status = determineStatus(temperature, humidity);
+
+			// Cache the metrics for 2 minutes
+			const metricsData = {
+				temperature,
+				temperatureAvg,
+				humidity,
+				humidityAvg,
+				status,
+				lastUpdate
+			};
+			cacheManager.set(cacheKey, metricsData, 2 * 60 * 1000);
+
 		} catch (error) {
 			console.error("Error fetching metrics:", error);
 			console.error("Error details:", error.message);
 			console.error("Error name:", error.name);
-			// Keep default values as fallback
+			
+			// Try to use expired cache as fallback
+			const cacheKey = CACHE_KEYS.METRICS(selectedDevice);
+			const expiredCache = localStorage.getItem('envirosync_' + cacheKey);
+			if (expiredCache) {
+				try {
+					const parsed = JSON.parse(expiredCache);
+					const metrics = parsed.data;
+					console.log("Using expired cache as fallback");
+					temperature = metrics.temperature;
+					temperatureAvg = metrics.temperatureAvg;
+					humidity = metrics.humidity;
+					humidityAvg = metrics.humidityAvg;
+					status = metrics.status;
+					lastUpdate = metrics.lastUpdate;
+				} catch (e) {
+					console.warn("Failed to parse expired cache, using defaults");
+				}
+			}
 		} finally {
 			loading = false;
 		}
