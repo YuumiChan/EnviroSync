@@ -1,20 +1,9 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
-import { compression } from 'vite-plugin-compression';
 
 export default defineConfig({
 	plugins: [
-		sveltekit(),
-		// Add gzip compression
-		compression({
-			algorithm: 'gzip',
-			ext: '.gz'
-		}),
-		// Add brotli compression (better compression ratio)
-		compression({
-			algorithm: 'brotliCompress',
-			ext: '.br'
-		})
+		sveltekit()
 	],
 	build: {
 		// Enable compression
@@ -33,6 +22,10 @@ export default defineConfig({
 		// Enable compression in dev
 		headers: {
 			'Cache-Control': 'public, max-age=3600'
-		}
+		},
+		// Fix WebSocket/HMR issues - let Vite choose the port automatically
+		hmr: true,
+		// Force the server to use the correct host
+		host: 'localhost'
 	}
 });

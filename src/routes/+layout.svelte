@@ -4,6 +4,7 @@
 	import { browser } from "$app/environment";
 	import "../app.css";
 
+	// Svelte 5 syntax for children
 	let { children } = $props();
 
 	// Initialize cache management
@@ -19,8 +20,8 @@
 			}
 		});
 
-		// Service worker registration
-		if ('serviceWorker' in navigator) {
+		// Service worker registration - only register if available
+		if ('serviceWorker' in navigator && import.meta.env.PROD) {
 			navigator.serviceWorker.register('/service-worker.js')
 				.then(registration => {
 					console.log('Service Worker registered successfully:', registration);
@@ -37,5 +38,5 @@
 </svelte:head>
 
 <div class="app-container">
-	{@render children?.()}
+	{@render children()}
 </div>

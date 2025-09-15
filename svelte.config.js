@@ -8,7 +8,7 @@ const config = {
 		// See https://svelte.dev/docs/kit/adapters for more information about adapters.
 		adapter: adapter(),
 		serviceWorker: {
-			register: true
+			register: false  // Disable in development to avoid import issues
 		}
 	}
 };
