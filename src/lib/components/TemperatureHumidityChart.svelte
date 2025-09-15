@@ -1,9 +1,9 @@
 <script>
+	import { CACHE_KEYS, cacheManager } from "$lib/cache.js";
 	import { Chart, registerables } from "chart.js";
-	import annotationPlugin from 'chartjs-plugin-annotation';
 	import "chartjs-adapter-date-fns";
+	import annotationPlugin from "chartjs-plugin-annotation";
 	import { onDestroy, onMount } from "svelte";
-	import { cacheManager, CACHE_KEYS } from "$lib/cache.js";
 
 	export let selectedDevice = "DHT11"; // Default to DHT11 if no device selected
 
@@ -15,9 +15,9 @@
 	let error = null;
 	let updateTimeout;
 	let refreshInterval;
-	
+
 	// Time range selection
-	let selectedTimeRange = 'day'; // default to day
+	let selectedTimeRange = "day"; // default to day
 	let missingDataRanges = []; // track missing data periods
 
 	// Test function to check QuestDB connectivity
@@ -46,35 +46,35 @@
 	// Function to get time range configuration
 	function getTimeRangeConfig(range) {
 		switch (range) {
-			case 'day':
+			case "day":
 				return {
 					period: 24,
-					unit: 'h',
-					displayUnit: 'hour',
-					displayFormat: 'h:mm a',
+					unit: "h",
+					displayUnit: "hour",
+					displayFormat: "h:mm a",
 					maxTicks: 12,
-					expectedInterval: 1000 * 60 * 15 // expect data every 15 minutes
+					expectedInterval: 1000 * 60 * 15, // expect data every 15 minutes
 				};
-			case 'week':
+			case "week":
 				return {
 					period: 7,
-					unit: 'd',
-					displayUnit: 'day',
-					displayFormat: 'MMM dd',
+					unit: "d",
+					displayUnit: "day",
+					displayFormat: "MMM dd",
 					maxTicks: 7,
-					expectedInterval: 1000 * 60 * 60 // expect data every hour
+					expectedInterval: 1000 * 60 * 60, // expect data every hour
 				};
-			case 'month':
+			case "month":
 				return {
 					period: 30,
-					unit: 'd',
-					displayUnit: 'day',
-					displayFormat: 'MMM dd',
+					unit: "d",
+					displayUnit: "day",
+					displayFormat: "MMM dd",
 					maxTicks: 15,
-					expectedInterval: 1000 * 60 * 60 * 2 // expect data every 2 hours
+					expectedInterval: 1000 * 60 * 60 * 2, // expect data every 2 hours
 				};
 			default:
-				return getTimeRangeConfig('day');
+				return getTimeRangeConfig("day");
 		}
 	}
 
@@ -85,11 +85,12 @@
 
 		for (let i = 1; i < data.length; i++) {
 			const timeDiff = data[i].timestamp.getTime() - data[i - 1].timestamp.getTime();
-			if (timeDiff > expectedInterval * 3) { // allow 3x tolerance
+			if (timeDiff > expectedInterval * 3) {
+				// allow 3x tolerance
 				missing.push({
 					start: data[i - 1].timestamp,
 					end: data[i].timestamp,
-					duration: timeDiff
+					duration: timeDiff,
 				});
 			}
 		}
@@ -98,23 +99,23 @@
 
 	// Function to create missing data regions for Chart.js
 	function createMissingDataRegions(missingRanges) {
-		return missingRanges.map(gap => ({
-			type: 'box',
+		return missingRanges.map((gap) => ({
+			type: "box",
 			xMin: gap.start,
 			xMax: gap.end,
-			backgroundColor: 'rgba(255, 107, 71, 0.15)',
-			borderColor: 'rgba(255, 107, 71, 0.3)',
+			backgroundColor: "rgba(255, 107, 71, 0.15)",
+			borderColor: "rgba(255, 107, 71, 0.3)",
 			borderWidth: 1,
 			label: {
-				content: 'Missing Data',
+				content: "Missing Data",
 				enabled: true,
-				position: 'center',
-				color: '#ff6b47',
+				position: "center",
+				color: "#ff6b47",
 				font: {
 					size: 10,
-					weight: 'bold'
-				}
-			}
+					weight: "bold",
+				},
+			},
 		}));
 	}
 
@@ -126,7 +127,7 @@
 			// Try cache first
 			const cacheKey = CACHE_KEYS.CHART_DATA(selectedDevice, selectedTimeRange);
 			const cachedData = cacheManager.get(cacheKey);
-			
+
 			if (cachedData) {
 				console.log("Using cached chart data");
 				missingDataRanges = cachedData.missingRanges || [];
@@ -167,7 +168,7 @@
 				// Cache the data for 3 minutes
 				const cacheData = {
 					data,
-					missingRanges: missingDataRanges
+					missingRanges: missingDataRanges,
 				};
 				cacheManager.set(cacheKey, cacheData, 3 * 60 * 1000);
 
@@ -182,7 +183,7 @@
 
 			// Try to return cached data even if expired as fallback
 			const cacheKey = CACHE_KEYS.CHART_DATA(selectedDevice, selectedTimeRange);
-			const expiredCache = localStorage.getItem('envirosync_' + cacheKey);
+			const expiredCache = localStorage.getItem("envirosync_" + cacheKey);
 			if (expiredCache) {
 				try {
 					const parsed = JSON.parse(expiredCache);
@@ -209,7 +210,7 @@
 		const humidityValues = [15, 20, 22, 25, 30, 40, 50, 55, 60, 65, 68, 70, 65, 60, 55, 50, 45, 40, 35, 30, 28, 25, 22, 20, 18];
 
 		let intervals, intervalMs;
-		if (timeConfig.unit === 'h') {
+		if (timeConfig.unit === "h") {
 			intervals = timeConfig.period;
 			intervalMs = 60 * 60 * 1000; // 1 hour
 		} else {
@@ -291,6 +292,14 @@
 		// Debounce the update to prevent rapid requests
 		updateTimeout = setTimeout(() => {
 			updateChart();
+
+			// Set up automatic refresh for this device every 30 seconds for charts
+			if (refreshInterval) {
+				clearInterval(refreshInterval);
+			}
+			refreshInterval = setInterval(() => {
+				updateChart();
+			}, 30000);
 		}, 300);
 	}
 
@@ -370,7 +379,7 @@
 						},
 					},
 					annotation: {
-						annotations: missingRegions
+						annotations: missingRegions,
 					},
 				},
 				scales: {
@@ -413,6 +422,13 @@
 				},
 			},
 		});
+
+		// Set up automatic refresh every 30 seconds for charts
+		refreshInterval = setInterval(() => {
+			if (selectedDevice) {
+				updateChart();
+			}
+		}, 30000);
 	});
 
 	onDestroy(() => {
@@ -451,39 +467,19 @@
 			{/if}
 			{#if missingDataRanges.length > 0}
 				<span class="missing-indicator">
-					⚠️ {missingDataRanges.length} gap{missingDataRanges.length > 1 ? 's' : ''}
+					⚠️ {missingDataRanges.length} gap{missingDataRanges.length > 1 ? "s" : ""}
 				</span>
 			{/if}
 		</div>
-		
+
 		<div class="chart-controls">
 			<div class="time-range-buttons">
-				<button 
-					class="time-range-btn" 
-					class:active={selectedTimeRange === 'day'} 
-					on:click={() => changeTimeRange('day')}
-				>
-					Day
-				</button>
-				<button 
-					class="time-range-btn" 
-					class:active={selectedTimeRange === 'week'} 
-					on:click={() => changeTimeRange('week')}
-				>
-					Week
-				</button>
-				<button 
-					class="time-range-btn" 
-					class:active={selectedTimeRange === 'month'} 
-					on:click={() => changeTimeRange('month')}
-				>
-					Month
-				</button>
+				<button class="time-range-btn" class:active={selectedTimeRange === "day"} on:click={() => changeTimeRange("day")}> Day </button>
+				<button class="time-range-btn" class:active={selectedTimeRange === "week"} on:click={() => changeTimeRange("week")}> Week </button>
+				<button class="time-range-btn" class:active={selectedTimeRange === "month"} on:click={() => changeTimeRange("month")}> Month </button>
 			</div>
-			
-			<button class="refresh-button" on:click={manualRefresh} disabled={loading}>
-				🔄 Refresh
-			</button>
+
+			<button class="refresh-button" on:click={manualRefresh} disabled={loading}> 🔄 Refresh </button>
 		</div>
 	</div>
 

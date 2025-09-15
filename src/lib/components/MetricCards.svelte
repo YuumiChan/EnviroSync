@@ -1,6 +1,6 @@
 <script>
+	import { CACHE_KEYS, cacheManager } from "$lib/cache.js";
 	import { onDestroy, onMount } from "svelte";
-	import { cacheManager, CACHE_KEYS } from "$lib/cache.js";
 
 	export let selectedDevice = "DHT11"; // Default to DHT11 if no device selected
 
@@ -22,7 +22,7 @@
 			// Try cache first
 			const cacheKey = CACHE_KEYS.METRICS(selectedDevice);
 			const cachedMetrics = cacheManager.get(cacheKey);
-			
+
 			if (cachedMetrics) {
 				console.log("Using cached metrics");
 				temperature = cachedMetrics.temperature;
@@ -82,18 +82,17 @@
 				humidity,
 				humidityAvg,
 				status,
-				lastUpdate
+				lastUpdate,
 			};
 			cacheManager.set(cacheKey, metricsData, 2 * 60 * 1000);
-
 		} catch (error) {
 			console.error("Error fetching metrics:", error);
 			console.error("Error details:", error.message);
 			console.error("Error name:", error.name);
-			
+
 			// Try to use expired cache as fallback
 			const cacheKey = CACHE_KEYS.METRICS(selectedDevice);
-			const expiredCache = localStorage.getItem('envirosync_' + cacheKey);
+			const expiredCache = localStorage.getItem("envirosync_" + cacheKey);
 			if (expiredCache) {
 				try {
 					const parsed = JSON.parse(expiredCache);
@@ -147,9 +146,9 @@
 	onMount(() => {
 		fetchCurrentMetrics();
 
-		// No automatic refresh - only load on mount
-		// const interval = setInterval(fetchCurrentMetrics, 15000);
-		// return () => clearInterval(interval);
+		// Set up automatic refresh every 10 seconds
+		const interval = setInterval(fetchCurrentMetrics, 10000);
+		return () => clearInterval(interval);
 	});
 
 	onDestroy(() => {

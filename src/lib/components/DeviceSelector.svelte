@@ -1,6 +1,6 @@
 <script>
+	import { CACHE_KEYS, cacheManager } from "$lib/cache.js";
 	import { createEventDispatcher, onMount } from "svelte";
-	import { cacheManager, CACHE_KEYS } from "$lib/cache.js";
 
 	const dispatch = createEventDispatcher();
 
@@ -21,11 +21,11 @@
 				console.log("Using cached devices:", cachedDevices);
 				devices = cachedDevices;
 				error = null;
-				
+
 				// Fetch device data for cached devices
 				await fetchDeviceData();
 				loading = false;
-				
+
 				// Continue with fresh fetch in background
 				fetchDevicesFromAPI();
 				return;
@@ -54,10 +54,10 @@
 				if (devicesResult.dataset && devicesResult.dataset.length > 0) {
 					const freshDevices = devicesResult.dataset.map((row) => row[0]).sort();
 					console.log("Found devices (sorted):", freshDevices);
-					
+
 					// Cache the devices for 10 minutes
 					cacheManager.set(CACHE_KEYS.DEVICES, freshDevices, 10 * 60 * 1000);
-					
+
 					devices = freshDevices;
 					error = null;
 
@@ -89,7 +89,7 @@
 				// Try cache first
 				const cacheKey = CACHE_KEYS.DEVICE_DATA(deviceId);
 				const cachedData = cacheManager.get(cacheKey);
-				
+
 				if (cachedData) {
 					return cachedData;
 				}
@@ -151,6 +151,10 @@
 
 	onMount(() => {
 		fetchDevices();
+
+		// Set up automatic refresh every 15 seconds for device list
+		const interval = setInterval(fetchDevices, 15000);
+		return () => clearInterval(interval);
 	});
 </script>
 
