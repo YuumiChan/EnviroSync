@@ -16,8 +16,8 @@
 	let updateTimeout;
 	let refreshInterval;
 
-	// Time range selection
-	let selectedTimeRange = "day"; // default to day
+	// Time range is fixed to 24 hours only
+	const selectedTimeRange = "day"; // always 24 hours
 	let missingDataRanges = []; // track missing data periods
 
 	// Test function to check QuestDB connectivity
@@ -53,7 +53,7 @@
 					displayUnit: "hour",
 					displayFormat: "h:mm a",
 					maxTicks: 12,
-					expectedInterval: 1000 * 60 * 15, // expect data every 15 minutes
+					expectedInterval: 1000 * 60 * 1, // expect data every 1 minute
 				};
 			case "week":
 				return {
@@ -135,8 +135,14 @@
 			}
 
 			const timeConfig = getTimeRangeConfig(selectedTimeRange);
-			// QuestDB HTTP API query to get data for the selected time range
-			const query = `SELECT ts, temperature, humidity FROM hawak WHERE device_id='${selectedDevice}' AND ts > dateadd('${timeConfig.unit}', -${timeConfig.period}, now()) ORDER BY ts ASC`;
+			// QuestDB HTTP API query to get data for the last 24 hours with 1-minute intervals
+			// Using SAMPLE BY to aggregate data into 1-minute buckets for better performance
+			const query = `SELECT ts, AVG(temperature) as temperature, AVG(humidity) as humidity 
+						   FROM hawak 
+						   WHERE device_id='${selectedDevice}' 
+						   AND ts > dateadd('h', -24, now()) 
+						   SAMPLE BY 1m 
+						   ALIGN TO CALENDAR ORDER BY ts ASC`;
 
 			const url = `/api/questdb?query=${encodeURIComponent(query)}`;
 			console.log("Proxy URL:", url);
@@ -165,12 +171,12 @@
 				missingDataRanges = detectMissingData(data, timeConfig.expectedInterval);
 				console.log("Missing data ranges:", missingDataRanges);
 
-				// Cache the data for 3 minutes
+				// Cache the data for 1 minute to align with refresh intervals
 				const cacheData = {
 					data,
 					missingRanges: missingDataRanges,
 				};
-				cacheManager.set(cacheKey, cacheData, 3 * 60 * 1000);
+				cacheManager.set(cacheKey, cacheData, 1 * 60 * 1000);
 
 				return data;
 			}
@@ -261,21 +267,13 @@
 		chart.update();
 	}
 
-	// Function to change time range
-	function changeTimeRange(range) {
-		if (range !== selectedTimeRange) {
-			selectedTimeRange = range;
-			missingDataRanges = []; // reset missing data
-			updateChart();
-		}
-	}
+	// Function removed - time range is now fixed to 24 hours only
 
 	let previousDevice = null;
-	let previousTimeRange = null;
 
-	// Reactive statement - update chart when selectedDevice or selectedTimeRange changes
-	$: if (selectedDevice && chart && (selectedDevice !== previousDevice || selectedTimeRange !== previousTimeRange)) {
-		console.log(`Chart: Device changed from ${previousDevice} to ${selectedDevice}, time range: ${selectedTimeRange}`);
+	// Reactive statement - update chart when selectedDevice changes
+	$: if (selectedDevice && chart && selectedDevice !== previousDevice) {
+		console.log(`Chart: Device changed from ${previousDevice} to ${selectedDevice}`);
 
 		// Clear previous timeout and interval
 		if (updateTimeout) {
@@ -287,19 +285,18 @@
 
 		// Update tracking variables
 		previousDevice = selectedDevice;
-		previousTimeRange = selectedTimeRange;
 
 		// Debounce the update to prevent rapid requests
 		updateTimeout = setTimeout(() => {
 			updateChart();
 
-			// Set up automatic refresh for this device every 30 seconds for charts
+			// Set up automatic refresh for this device every 1 minute for charts
 			if (refreshInterval) {
 				clearInterval(refreshInterval);
 			}
 			refreshInterval = setInterval(() => {
 				updateChart();
-			}, 30000);
+			}, 60000);
 		}, 300);
 	}
 
@@ -423,12 +420,12 @@
 			},
 		});
 
-		// Set up automatic refresh every 30 seconds for charts
+		// Set up automatic refresh every 1 minute for charts
 		refreshInterval = setInterval(() => {
 			if (selectedDevice) {
 				updateChart();
 			}
-		}, 30000);
+		}, 60000);
 	});
 
 	onDestroy(() => {
@@ -473,12 +470,6 @@
 		</div>
 
 		<div class="chart-controls">
-			<div class="time-range-buttons">
-				<button class="time-range-btn" class:active={selectedTimeRange === "day"} on:click={() => changeTimeRange("day")}> Day </button>
-				<button class="time-range-btn" class:active={selectedTimeRange === "week"} on:click={() => changeTimeRange("week")}> Week </button>
-				<button class="time-range-btn" class:active={selectedTimeRange === "month"} on:click={() => changeTimeRange("month")}> Month </button>
-			</div>
-
 			<button class="refresh-button" on:click={manualRefresh} disabled={loading}> 🔄 Refresh </button>
 		</div>
 	</div>

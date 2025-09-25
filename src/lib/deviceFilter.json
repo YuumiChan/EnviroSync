@@ -1,0 +1,8 @@
+{
+  "hiddenDeviceIds": [
+    "DHT11",
+    "Si7021V2",
+    "test_device"
+  ],
+  "_description": "List of device IDs that should be hidden from the dashboard. Add device IDs to this array to prevent them from appearing in the device selector or dashboard."
+}

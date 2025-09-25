@@ -1,5 +1,4 @@
 <script>
-	import { CACHE_KEYS, cacheManager } from "$lib/cache.js";
 	import { onDestroy, onMount } from "svelte";
 
 	export let selectedDevice = "DHT11"; // Default to DHT11 if no device selected
@@ -18,22 +17,6 @@
 	async function fetchCurrentMetrics() {
 		try {
 			console.log(`MetricCards: Attempting to fetch metrics for device: ${selectedDevice}`);
-
-			// Try cache first
-			const cacheKey = CACHE_KEYS.METRICS(selectedDevice);
-			const cachedMetrics = cacheManager.get(cacheKey);
-
-			if (cachedMetrics) {
-				console.log("Using cached metrics");
-				temperature = cachedMetrics.temperature;
-				temperatureAvg = cachedMetrics.temperatureAvg;
-				humidity = cachedMetrics.humidity;
-				humidityAvg = cachedMetrics.humidityAvg;
-				status = cachedMetrics.status;
-				lastUpdate = cachedMetrics.lastUpdate;
-				loading = false;
-				return;
-			}
 
 			// Get current readings (latest record)
 			const currentQuery = `SELECT temperature, humidity, ts FROM hawak WHERE device_id='${selectedDevice}' ORDER BY ts DESC LIMIT 1`;
@@ -74,40 +57,18 @@
 
 			// Determine status based on readings
 			status = determineStatus(temperature, humidity);
-
-			// Cache the metrics for 2 minutes
-			const metricsData = {
-				temperature,
-				temperatureAvg,
-				humidity,
-				humidityAvg,
-				status,
-				lastUpdate,
-			};
-			cacheManager.set(cacheKey, metricsData, 2 * 60 * 1000);
 		} catch (error) {
 			console.error("Error fetching metrics:", error);
 			console.error("Error details:", error.message);
 			console.error("Error name:", error.name);
 
-			// Try to use expired cache as fallback
-			const cacheKey = CACHE_KEYS.METRICS(selectedDevice);
-			const expiredCache = localStorage.getItem("envirosync_" + cacheKey);
-			if (expiredCache) {
-				try {
-					const parsed = JSON.parse(expiredCache);
-					const metrics = parsed.data;
-					console.log("Using expired cache as fallback");
-					temperature = metrics.temperature;
-					temperatureAvg = metrics.temperatureAvg;
-					humidity = metrics.humidity;
-					humidityAvg = metrics.humidityAvg;
-					status = metrics.status;
-					lastUpdate = metrics.lastUpdate;
-				} catch (e) {
-					console.warn("Failed to parse expired cache, using defaults");
-				}
-			}
+			// Use default values on error
+			temperature = "0.00";
+			temperatureAvg = "0.00";
+			humidity = "0.0";
+			humidityAvg = "0.00";
+			status = "ERROR";
+			lastUpdate = "N/A";
 		} finally {
 			loading = false;
 		}
@@ -146,8 +107,8 @@
 	onMount(() => {
 		fetchCurrentMetrics();
 
-		// Set up automatic refresh every 10 seconds
-		const interval = setInterval(fetchCurrentMetrics, 10000);
+		// Set up automatic refresh every 1 minute (aligned with chart)
+		const interval = setInterval(fetchCurrentMetrics, 60000);
 		return () => clearInterval(interval);
 	});
 
@@ -167,9 +128,6 @@
 	<!-- Temperature Card -->
 	<div class="metric-card">
 		<div class="metric-header">
-			<svg class="metric-icon" viewBox="0 0 24 24" fill="#FF6B47">
-				<path d="M15 13V5c0-1.66-1.34-3-3-3S9 3.34 9 5v8c-1.21.91-2 2.37-2 4 0 2.76 2.24 5 5 5s5-2.24 5-5c0-1.63-.79-3.09-2-4zm-4-2V5c0-.55.45-1 1-1s1 .45 1 1v6h-2z" />
-			</svg>
 			<span class="metric-label">Temperature</span>
 		</div>
 		<div class="metric-value temperature">{temperature}°C</div>
@@ -179,9 +137,6 @@
 	<!-- Humidity Card -->
 	<div class="metric-card">
 		<div class="metric-header">
-			<svg class="metric-icon" viewBox="0 0 24 24" fill="#4A90E2">
-				<path d="M12 2c-5.33 4.55-8 8.48-8 11.8 0 4.98 3.8 8.2 8 8.2s8-3.22 8-8.2c0-3.32-2.67-7.25-8-11.8zM12 20c-3.35 0-6-2.57-6-5.2 0-2.34 1.95-5.44 6-9.14 4.05 3.7 6 6.79 6 9.14 0 2.63-2.65 5.2-6 5.2z" />
-			</svg>
 			<span class="metric-label">Humidity</span>
 		</div>
 		<div class="metric-value humidity">{humidity}%</div>

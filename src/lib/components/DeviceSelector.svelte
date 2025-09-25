@@ -1,5 +1,5 @@
 <script>
-	import { CACHE_KEYS, cacheManager } from "$lib/cache.js";
+	import { filterVisibleDevices } from "$lib/deviceFilter.js";
 	import { createEventDispatcher, onMount } from "svelte";
 
 	const dispatch = createEventDispatcher();
@@ -15,23 +15,7 @@
 		try {
 			console.log("Fetching available devices...");
 
-			// Try to get from cache first
-			const cachedDevices = cacheManager.get(CACHE_KEYS.DEVICES);
-			if (cachedDevices) {
-				console.log("Using cached devices:", cachedDevices);
-				devices = cachedDevices;
-				error = null;
-
-				// Fetch device data for cached devices
-				await fetchDeviceData();
-				loading = false;
-
-				// Continue with fresh fetch in background
-				fetchDevicesFromAPI();
-				return;
-			}
-
-			// No cache, fetch from API
+			// Fetch directly from API without caching
 			await fetchDevicesFromAPI();
 		} catch (err) {
 			console.error("Error in fetchDevices:", err);
@@ -52,11 +36,12 @@
 				console.log("Devices result:", devicesResult);
 
 				if (devicesResult.dataset && devicesResult.dataset.length > 0) {
-					const freshDevices = devicesResult.dataset.map((row) => row[0]).sort();
-					console.log("Found devices (sorted):", freshDevices);
+					const allDevices = devicesResult.dataset.map((row) => row[0]).sort();
+					console.log("Found all devices (sorted):", allDevices);
 
-					// Cache the devices for 10 minutes
-					cacheManager.set(CACHE_KEYS.DEVICES, freshDevices, 10 * 60 * 1000);
+					// Filter out hidden devices
+					const freshDevices = filterVisibleDevices(allDevices);
+					console.log("Visible devices after filtering:", freshDevices);
 
 					devices = freshDevices;
 					error = null;
@@ -86,15 +71,7 @@
 	async function fetchDeviceData() {
 		try {
 			const promises = devices.map(async (deviceId) => {
-				// Try cache first
-				const cacheKey = CACHE_KEYS.DEVICE_DATA(deviceId);
-				const cachedData = cacheManager.get(cacheKey);
-
-				if (cachedData) {
-					return cachedData;
-				}
-
-				// Fetch from API
+				// Fetch from API directly
 				const query = `SELECT temperature, humidity, ts FROM hawak WHERE device_id='${deviceId}' ORDER BY ts DESC LIMIT 1`;
 				const response = await fetch(`/api/questdb?query=${encodeURIComponent(query)}`);
 
@@ -109,8 +86,6 @@
 							lastUpdate: new Date(timestamp),
 						};
 
-						// Cache for 2 minutes
-						cacheManager.set(cacheKey, deviceData, 2 * 60 * 1000);
 						return deviceData;
 					}
 				}
