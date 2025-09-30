@@ -120,6 +120,16 @@
 		});
 	}
 
+	// Check if device data is older than 5 minutes
+	function isDeviceDataStale(deviceId) {
+		const data = deviceData[deviceId];
+		if (!data || !data.lastUpdate) return true;
+
+		const now = new Date();
+		const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
+		return data.lastUpdate < fiveMinutesAgo;
+	}
+
 	function selectDevice(deviceId) {
 		dispatch("deviceSelected", { deviceId });
 	}
@@ -147,7 +157,7 @@
 	{:else}
 		<div class="devices-grid">
 			{#each devices as deviceId}
-				<button class="device-card" on:click={() => selectDevice(deviceId)}>
+				<button class="device-card" class:stale-data={isDeviceDataStale(deviceId)} on:click={() => selectDevice(deviceId)}>
 					<div class="device-header">
 						<h3>{deviceId}</h3>
 					</div>
@@ -256,6 +266,22 @@
 		background: #333;
 		transform: translateY(-2px);
 		box-shadow: 0 4px 20px rgba(74, 144, 226, 0.2);
+	}
+
+	.device-card.stale-data {
+		background: rgba(255, 255, 255, 0.95);
+		color: #333;
+		border-color: rgba(200, 200, 200, 0.8);
+	}
+
+	.device-card.stale-data:hover {
+		background: rgba(255, 255, 255, 1);
+		border-color: #999;
+		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+	}
+
+	.device-card.stale-data .device-header h3 {
+		color: #333;
 	}
 
 	.device-header h3 {

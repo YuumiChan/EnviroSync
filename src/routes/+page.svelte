@@ -1,6 +1,5 @@
 <script>
 	import ConnectionStatus from "$lib/components/ConnectionStatus.svelte";
-	import DateTimeDisplay from "$lib/components/DateTimeDisplay.svelte";
 	import DeviceSelector from "$lib/components/DeviceSelector.svelte";
 	import MetricCards from "$lib/components/MetricCards.svelte";
 	import Sidebar from "$lib/components/Sidebar.svelte";
@@ -31,9 +30,9 @@
 				<p class="dashboard-subtitle">Welcome, it's great to see you again.</p>
 			</div>
 
-			<!-- <div class="user-info">
+			<div class="user-info">
 				<ConnectionStatus />
-			</div> -->
+			</div>
 		</div>
 
 		<DeviceSelector on:deviceSelected={handleDeviceSelection} />
@@ -45,7 +44,7 @@
 		<TemperatureHumidityChart {selectedDevice} />
 
 		<div class="metrics-section">
-			<DateTimeDisplay />
+			<!-- <DateTimeDisplay /> -->
 			<MetricCards {selectedDevice} />
 		</div>
 	{/if}

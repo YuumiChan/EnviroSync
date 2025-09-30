@@ -514,36 +514,7 @@
 		flex-wrap: wrap;
 	}
 
-	.time-range-buttons {
-		display: flex;
-		background: rgba(255, 255, 255, 0.1);
-		border-radius: 6px;
-		padding: 2px;
-		gap: 2px;
-	}
 
-	.time-range-btn {
-		background: transparent;
-		color: #888;
-		border: none;
-		padding: 6px 12px;
-		border-radius: 4px;
-		cursor: pointer;
-		font-size: 12px;
-		font-weight: 500;
-		transition: all 0.2s ease;
-		white-space: nowrap;
-	}
-
-	.time-range-btn:hover {
-		color: #fff;
-		background: rgba(74, 144, 226, 0.2);
-	}
-
-	.time-range-btn.active {
-		background: #4a90e2;
-		color: white;
-	}
 
 	.chart-wrapper {
 		position: relative;
@@ -612,14 +583,6 @@
 			justify-content: space-between;
 		}
 
-		.time-range-buttons {
-			flex: 1;
-			justify-content: center;
-		}
 
-		.time-range-btn {
-			flex: 1;
-			text-align: center;
-		}
 	}
 </style>
