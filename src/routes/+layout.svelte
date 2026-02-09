@@ -1,33 +1,23 @@
 <script>
-	import favicon from "$lib/assets/favicon.svg";
-	import { cacheManager } from "$lib/cache.js";
 	import { browser } from "$app/environment";
+	import favicon from "$lib/assets/favicon.svg";
 	import "../app.css";
 
 	// Svelte 5 syntax for children
 	let { children } = $props();
 
-	// Initialize cache management
 	if (browser) {
-		// Clear expired cache on app start
-		const stats = cacheManager.getStats();
-		console.log('Cache stats:', stats);
-		
-		// Clean up expired items
-		stats.items.forEach(item => {
-			if (item.isExpired) {
-				cacheManager.delete(item.key);
-			}
-		});
+		console.log("EnviroSync app initialized");
 
 		// Service worker registration - only register if available
-		if ('serviceWorker' in navigator && import.meta.env.PROD) {
-			navigator.serviceWorker.register('/service-worker.js')
-				.then(registration => {
-					console.log('Service Worker registered successfully:', registration);
+		if ("serviceWorker" in navigator && import.meta.env.PROD) {
+			navigator.serviceWorker
+				.register("/service-worker.js")
+				.then((registration) => {
+					console.log("Service Worker registered successfully:", registration);
 				})
-				.catch(error => {
-					console.log('Service Worker registration failed:', error);
+				.catch((error) => {
+					console.log("Service Worker registration failed:", error);
 				});
 		}
 	}

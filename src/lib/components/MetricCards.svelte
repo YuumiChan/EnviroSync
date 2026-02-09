@@ -1,4 +1,6 @@
 <script>
+	import { config } from "$lib/config.js";
+	import { getTableName } from "$lib/questdbHelpers.js";
 	import { onDestroy, onMount } from "svelte";
 
 	export let selectedDevice = "DHT11"; // Default to DHT11 if no device selected
@@ -18,11 +20,15 @@
 		try {
 			console.log(`MetricCards: Attempting to fetch metrics for device: ${selectedDevice}`);
 
+			// Determine device column and build queries
+			const deviceColName = await (await import("$lib/questdbHelpers.js")).getDeviceColumnName();
+			const deviceCol = (await import("$lib/questdbHelpers.js")).getQuotedColumn(deviceColName);
+			const tableName = getTableName();
 			// Get current readings (latest record)
-			const currentQuery = `SELECT temperature, humidity, ts FROM hawak WHERE device_id='${selectedDevice}' ORDER BY ts DESC LIMIT 1`;
+			const currentQuery = `SELECT temp, humid, ts FROM ${tableName} WHERE ${deviceCol}='${selectedDevice}' ORDER BY ts DESC LIMIT 1`;
 
 			// Get averages for last 24 hours
-			const avgQuery = `SELECT AVG(temperature) as temp_avg, AVG(humidity) as humid_avg FROM hawak WHERE device_id='${selectedDevice}' AND ts > dateadd('h', -24, now())`;
+			const avgQuery = `SELECT AVG(temp) as temp_avg, AVG(humid) as humid_avg FROM ${tableName} WHERE ${deviceCol}='${selectedDevice}' AND ts > dateadd('h', -24, now())`;
 
 			console.log("Fetching current and average data via proxy...");
 
@@ -39,9 +45,35 @@
 					temperature = parseFloat(temp).toFixed(2); // 2 decimal places
 					humidity = parseFloat(humid).toFixed(1); // 1 decimal place
 
-					// Use timestamp as-is from database
-					const dbDate = new Date(timestamp);
-					lastUpdate = dbDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+					// Treat timestamp as already in local time (UTC+8) - parse as string to avoid conversion
+					// The DB returns timestamps like "2026-02-03T10:12:05.000000Z" which is already UTC+8
+					const timestampStr = timestamp.replace("Z", ""); // Remove Z to treat as local
+					const dbDate = new Date(timestampStr);
+					const now = new Date();
+					const minutesSinceLastUpdate = (now - dbDate) / 1000 / 60;
+					const isOffline = minutesSinceLastUpdate > 30;
+
+					// Format time as 12-hour with AM/PM
+					// If offline, show date + time; otherwise just time
+					if (isOffline) {
+						lastUpdate = dbDate.toLocaleString("en-US", {
+							month: "short",
+							day: "numeric",
+							year: "numeric",
+							hour: "numeric",
+							minute: "2-digit",
+							hour12: true,
+						});
+						status = "Offline";
+					} else {
+						lastUpdate = dbDate.toLocaleTimeString("en-US", {
+							hour: "numeric",
+							minute: "2-digit",
+							hour12: true,
+						});
+						// Determine status based on readings only if not offline
+						status = determineStatus(temperature, humidity);
+					}
 				}
 			}
 
@@ -54,9 +86,6 @@
 					humidityAvg = parseFloat(humidAvg).toFixed(2);
 				}
 			}
-
-			// Determine status based on readings
-			status = determineStatus(temperature, humidity);
 		} catch (error) {
 			console.error("Error fetching metrics:", error);
 			console.error("Error details:", error.message);
@@ -79,16 +108,30 @@
 		const t = parseFloat(temp);
 		const h = parseFloat(humid);
 
-		// Define normal ranges
-		const tempNormal = t >= 18 && t <= 35;
-		const humidNormal = h >= 30 && h <= 80;
+		// Load settings from localStorage
+		const savedSettings = localStorage.getItem("enviroSyncSettings");
+		const settings = savedSettings
+			? JSON.parse(savedSettings)
+			: {
+					tempNormalMin: 18,
+					tempNormalMax: 35,
+					tempSevere: 40,
+					humidNormalMin: 30,
+					humidNormalMax: 80,
+					humidSevere: 90,
+					rmsEarthquakeThreshold: 0.05,
+				};
+
+		// Define normal ranges using settings
+		const tempNormal = t >= settings.tempNormalMin && t <= settings.tempNormalMax;
+		const humidNormal = h >= settings.humidNormalMin && h <= settings.humidNormalMax;
 
 		if (tempNormal && humidNormal) {
-			return "NORMAL";
-		} else if (t > 40 || h > 90) {
-			return "CRITICAL";
+			return "Normal";
+		} else if (t > settings.tempSevere || h > settings.humidSevere) {
+			return "Severe";
 		} else {
-			return "WARNING";
+			return "Warning";
 		}
 	}
 
@@ -108,7 +151,7 @@
 		fetchCurrentMetrics();
 
 		// Set up automatic refresh every 1 minute (aligned with chart)
-		const interval = setInterval(fetchCurrentMetrics, 60000);
+		const interval = setInterval(fetchCurrentMetrics, config.refreshIntervals.metricCards);
 		return () => clearInterval(interval);
 	});
 
@@ -146,18 +189,9 @@
 	<!-- Status Card -->
 	<div class="metric-card">
 		<div class="metric-header">
-			<svg class="metric-icon" viewBox="0 0 24 24" fill={status === "NORMAL" ? "#4CAF50" : status === "WARNING" ? "#FF9800" : "#F44336"}>
-				{#if status === "NORMAL"}
-					<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
-				{:else if status === "WARNING"}
-					<path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z" />
-				{:else}
-					<path d="M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z" />
-				{/if}
-			</svg>
 			<span class="metric-label">Status</span>
 		</div>
-		<div class="metric-value status" class:warning={status === "WARNING"} class:critical={status === "CRITICAL"}>
+		<div class="metric-value status" class:warning={status === "Warning"} class:critical={status === "Severe"} class:offline={status === "Offline"}>
 			{loading ? "LOADING..." : status}
 		</div>
 		<div class="status-details">as of {lastUpdate}</div>
@@ -175,6 +209,7 @@
 		padding: 1rem;
 		border: 1px solid rgba(74, 144, 226, 0.2);
 		transition: all 0.3s ease;
+		text-align: center;
 	}
 
 	.metric-card:hover {
@@ -186,14 +221,9 @@
 	.metric-header {
 		display: flex;
 		align-items: center;
+		justify-content: center;
 		gap: 0.4rem;
 		margin-bottom: 0.7rem;
-	}
-
-	.metric-icon {
-		width: 20px;
-		height: 20px;
-		flex-shrink: 0;
 	}
 
 	.metric-label {
@@ -228,6 +258,10 @@
 
 	.metric-value.critical {
 		color: #f44336;
+	}
+
+	.metric-value.offline {
+		color: #757575;
 	}
 
 	.metric-average,

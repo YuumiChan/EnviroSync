@@ -1,0 +1,577 @@
+<script>
+	import { goto } from "$app/navigation";
+	import Sidebar from "$lib/components/Sidebar.svelte";
+	import { getHiddenDeviceIds, setHiddenDeviceIds } from "$lib/deviceFilter.js";
+	import { getDeviceColumnName, getQuotedColumn, getTableName } from "$lib/questdbHelpers.js";
+	import { onMount } from "svelte";
+
+	// Default thresholds
+	let tempNormalMin = 18;
+	let tempNormalMax = 35;
+	let tempSevere = 40;
+
+	let humidNormalMin = 30;
+	let humidNormalMax = 80;
+	let humidSevere = 90;
+
+	let rmsEarthquakeThreshold = 0.05;
+
+	let saveSuccess = false;
+	let saveError = "";
+
+	// Device visibility
+	let allDevices = [];
+	let hiddenDevices = [];
+	let loadingDevices = true;
+
+	async function fetchAllDevices() {
+		try {
+			loadingDevices = true;
+			const deviceColName = await getDeviceColumnName();
+			const deviceCol = getQuotedColumn(deviceColName);
+			const tableName = getTableName();
+			const query = `SELECT DISTINCT ${deviceCol} FROM ${tableName} ORDER BY ${deviceCol}`;
+
+			const response = await fetch(`/api/questdb?query=${encodeURIComponent(query)}`);
+			if (response.ok) {
+				const result = await response.json();
+				if (result.dataset && result.dataset.length > 0) {
+					allDevices = result.dataset.map((row) => row[0]).sort();
+				}
+			}
+		} catch (err) {
+			console.error("Error fetching devices:", err);
+		} finally {
+			loadingDevices = false;
+		}
+	}
+
+	function toggleDeviceVisibility(deviceId) {
+		const index = hiddenDevices.indexOf(deviceId);
+		if (index === -1) {
+			hiddenDevices = [...hiddenDevices, deviceId];
+		} else {
+			hiddenDevices = hiddenDevices.filter((id) => id !== deviceId);
+		}
+		setHiddenDeviceIds(hiddenDevices);
+	}
+
+	function isDeviceHidden(deviceId) {
+		return hiddenDevices.includes(deviceId);
+	}
+
+	// Load settings from localStorage on mount
+	onMount(() => {
+		const savedSettings = localStorage.getItem("enviroSyncSettings");
+		if (savedSettings) {
+			try {
+				const settings = JSON.parse(savedSettings);
+				tempNormalMin = settings.tempNormalMin ?? 18;
+				tempNormalMax = settings.tempNormalMax ?? 35;
+				tempSevere = settings.tempSevere ?? 40;
+				humidNormalMin = settings.humidNormalMin ?? 30;
+				humidNormalMax = settings.humidNormalMax ?? 80;
+				humidSevere = settings.humidSevere ?? 90;
+				rmsEarthquakeThreshold = settings.rmsEarthquakeThreshold ?? 0.05;
+			} catch (err) {
+				console.error("Error loading settings:", err);
+			}
+		}
+
+		// Load hidden devices
+		hiddenDevices = getHiddenDeviceIds();
+
+		// Fetch all devices from database
+		fetchAllDevices();
+	});
+
+	function saveSettings() {
+		try {
+			// Validate inputs
+			if (tempNormalMin < 0 || tempNormalMin >= tempNormalMax) {
+				saveError = "Temperature normal min must be 0 to normal max - 1";
+				return;
+			}
+			if (tempNormalMax >= tempSevere) {
+				saveError = "Temperature normal max must be less than severe threshold";
+				return;
+			}
+			if (humidNormalMin < 0 || humidNormalMin >= humidNormalMax) {
+				saveError = "Humidity normal min must be 0 to normal max - 1";
+				return;
+			}
+			if (humidNormalMax >= humidSevere) {
+				saveError = "Humidity normal max must be less than severe threshold";
+				return;
+			}
+			if (rmsEarthquakeThreshold <= 0) {
+				saveError = "RMS threshold must be greater than 0";
+				return;
+			}
+
+			// Save to localStorage
+			const settings = {
+				tempNormalMin,
+				tempNormalMax,
+				tempSevere,
+				humidNormalMin,
+				humidNormalMax,
+				humidSevere,
+				rmsEarthquakeThreshold,
+			};
+
+			localStorage.setItem("enviroSyncSettings", JSON.stringify(settings));
+
+			saveSuccess = true;
+			saveError = "";
+
+			// Redirect to dashboard after 1 second
+			setTimeout(() => {
+				goto("/");
+			}, 1000);
+		} catch (err) {
+			saveError = "Failed to save settings: " + err.message;
+			saveSuccess = false;
+		}
+	}
+
+	function resetToDefaults() {
+		tempNormalMin = 18;
+		tempNormalMax = 35;
+		tempSevere = 40;
+		humidNormalMin = 30;
+		humidNormalMax = 80;
+		humidSevere = 90;
+		rmsEarthquakeThreshold = 0.05;
+	}
+</script>
+
+<Sidebar />
+
+<main class="main-content">
+	<div class="page-header">
+		<h1>Settings</h1>
+		<p class="subtitle">Configure thresholds for monitoring alerts</p>
+	</div>
+
+	<div class="settings-container">
+		<!-- Temperature Settings -->
+		<div class="setting-section">
+			<h2>
+				<svg class="icon" viewBox="0 0 24 24" fill="currentColor">
+					<path d="M15 13V5c0-1.66-1.34-3-3-3S9 3.34 9 5v8c-1.21.91-2 2.37-2 4 0 2.76 2.24 5 5 5s5-2.24 5-5c0-1.63-.79-3.09-2-4zm-4-2V5c0-.55.45-1 1-1s1 .45 1 1v6h-2z" />
+				</svg>
+				Temperature Thresholds (°C)
+			</h2>
+			<div class="settings-grid">
+				<div class="setting-item">
+					<label for="tempNormalMin">Normal Range - Minimum</label>
+					<input type="number" id="tempNormalMin" bind:value={tempNormalMin} step="0.1" />
+				</div>
+				<div class="setting-item">
+					<label for="tempNormalMax">Normal Range - Maximum</label>
+					<input type="number" id="tempNormalMax" bind:value={tempNormalMax} step="0.1" />
+				</div>
+				<div class="setting-item">
+					<label for="tempSevere">Severe Threshold</label>
+					<input type="number" id="tempSevere" bind:value={tempSevere} step="0.1" />
+					<small>Values above this will trigger severe alerts</small>
+				</div>
+			</div>
+		</div>
+
+		<!-- Humidity Settings -->
+		<div class="setting-section">
+			<h2>
+				<svg class="icon" viewBox="0 0 24 24" fill="currentColor">
+					<path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z" />
+				</svg>
+				Humidity Thresholds (%)
+			</h2>
+			<div class="settings-grid">
+				<div class="setting-item">
+					<label for="humidNormalMin">Normal Range - Minimum</label>
+					<input type="number" id="humidNormalMin" bind:value={humidNormalMin} step="1" />
+				</div>
+				<div class="setting-item">
+					<label for="humidNormalMax">Normal Range - Maximum</label>
+					<input type="number" id="humidNormalMax" bind:value={humidNormalMax} step="1" />
+				</div>
+				<div class="setting-item">
+					<label for="humidSevere">Severe Threshold</label>
+					<input type="number" id="humidSevere" bind:value={humidSevere} step="1" />
+					<small>Values above this will trigger severe alerts</small>
+				</div>
+			</div>
+		</div>
+
+		<!-- RMS Earthquake Detection -->
+		<div class="setting-section">
+			<h2>
+				<svg class="icon" viewBox="0 0 24 24" fill="currentColor">
+					<path d="M15.54 5.54L13.77 7.3 12 5.54 10.23 7.3 8.46 5.54 12 2zm5.23 5.23l-1.77-1.77L15.54 12l3.46 3.46 1.77-1.77-3.46-3.46zM8.46 18.46L12 22l3.54-3.54L13.77 16.7 12 18.46l-1.77-1.76zm-5.23-5.23L1.46 12l1.77 1.77L6.69 10.23 3.23 13.23z" />
+				</svg>
+				Earthquake Detection Threshold
+			</h2>
+			<div class="settings-grid">
+				<div class="setting-item">
+					<label for="rmsThreshold">RMS Magnitude (g-force)</label>
+					<input type="number" id="rmsThreshold" bind:value={rmsEarthquakeThreshold} step="0.001" min="0.001" />
+					<small>Default: 0.05g (noticeable earthquake)</small>
+				</div>
+			</div>
+			<div class="info-box">
+				<p><strong>Reference Guide:</strong></p>
+				<ul>
+					<li>0.001g - 0.020g: Normal environmental vibration</li>
+					<li>0.021g - 0.050g: Pay attention zone</li>
+					<li>&gt; 0.050g: Noticeable earthquake (recommended)</li>
+				</ul>
+			</div>
+		</div>
+
+		<!-- Device Visibility -->
+		<div class="setting-section">
+			<h2>
+				<svg class="icon" viewBox="0 0 24 24" fill="currentColor">
+					<path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" />
+				</svg>
+				Device Visibility
+			</h2>
+			<p class="section-description">Show or hide devices from the dashboard. Hidden devices won't appear in the device selector.</p>
+
+			{#if loadingDevices}
+				<div class="loading-devices">
+					<div class="spinner-small"></div>
+					<span>Loading devices...</span>
+				</div>
+			{:else if allDevices.length === 0}
+				<div class="no-devices">No devices found in the database</div>
+			{:else}
+				<div class="devices-grid">
+					{#each allDevices as deviceId}
+						<div class="device-item" class:hidden={isDeviceHidden(deviceId)}>
+							<span class="device-name">{deviceId}</span>
+							<button class="visibility-btn" class:hidden={isDeviceHidden(deviceId)} on:click={() => toggleDeviceVisibility(deviceId)}>
+								{#if isDeviceHidden(deviceId)}
+									<svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor">
+										<path
+											d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.43-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C10.74 7.13 11.35 7 12 7zM2 4.27l2.28 2.28.46.46C3.08 8.3 1.78 10.02 1 12c1.73 4.39 6 7.5 11 7.5 1.55 0 3.03-.3 4.38-.84l.42.42L19.73 22 21 20.73 3.27 3 2 4.27zM7.53 9.8l1.55 1.55c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3 .22 0 .44-.03.65-.08l1.55 1.55c-.67.33-1.41.53-2.2.53-2.76 0-5-2.24-5-5 0-.79.2-1.53.53-2.2zm4.31-.78l3.15 3.15.02-.16c0-1.66-1.34-3-3-3l-.17.01z"
+										/>
+									</svg>
+									Show
+								{:else}
+									<svg class="btn-icon" viewBox="0 0 24 24" fill="currentColor">
+										<path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" />
+									</svg>
+									Hide
+								{/if}
+							</button>
+						</div>
+					{/each}
+				</div>
+			{/if}
+		</div>
+
+		<!-- Save Actions -->
+		<div class="actions">
+			<button class="btn-secondary" on:click={resetToDefaults}>Reset to Defaults</button>
+			<button class="btn-primary" on:click={saveSettings}>Save Settings</button>
+		</div>
+
+		{#if saveSuccess}
+			<div class="alert success">Settings saved successfully! Redirecting to dashboard...</div>
+		{/if}
+
+		{#if saveError}
+			<div class="alert error">
+				{saveError}
+			</div>
+		{/if}
+	</div>
+</main>
+
+<style>
+	.page-header {
+		margin-bottom: 2rem;
+	}
+
+	.page-header h1 {
+		font-size: 2rem;
+		margin-bottom: 0.5rem;
+		color: #fff;
+	}
+
+	.subtitle {
+		color: #888;
+		font-size: 1rem;
+	}
+
+	.settings-container {
+		max-width: 1000px;
+		display: flex;
+		flex-direction: column;
+		gap: 2rem;
+	}
+
+	.setting-section {
+		background: rgba(0, 0, 0, 0.3);
+		border-radius: 12px;
+		padding: 2rem;
+		border: 1px solid rgba(255, 255, 255, 0.1);
+	}
+
+	.setting-section h2 {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		font-size: 1.4rem;
+		margin-bottom: 1.5rem;
+		color: #fff;
+	}
+
+	.icon {
+		width: 24px;
+		height: 24px;
+	}
+
+	.settings-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+		gap: 1.5rem;
+		margin-bottom: 1.5rem;
+	}
+
+	.setting-item {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.setting-item label {
+		color: #b0b0b0;
+		font-weight: 500;
+		font-size: 0.95rem;
+	}
+
+	.setting-item input {
+		background: rgba(255, 255, 255, 0.05);
+		border: 1px solid rgba(255, 255, 255, 0.2);
+		border-radius: 6px;
+		padding: 0.75rem;
+		color: #fff;
+		font-size: 1rem;
+		transition: all 0.2s;
+	}
+
+	.setting-item input:focus {
+		outline: none;
+		border-color: #4a90e2;
+		background: rgba(255, 255, 255, 0.08);
+	}
+
+	.setting-item small {
+		color: #666;
+		font-size: 0.85rem;
+	}
+
+	.info-box {
+		background: rgba(74, 144, 226, 0.1);
+		border: 1px solid rgba(74, 144, 226, 0.3);
+		border-radius: 6px;
+		padding: 1rem;
+		margin-top: 1rem;
+	}
+
+	.info-box p {
+		margin: 0 0 0.5rem 0;
+		color: #4a90e2;
+	}
+
+	.info-box ul {
+		margin: 0;
+		padding-left: 1.5rem;
+		color: #b0b0b0;
+	}
+
+	.info-box li {
+		margin-bottom: 0.3rem;
+	}
+
+	.actions {
+		display: flex;
+		gap: 1rem;
+		justify-content: flex-end;
+		margin-top: 1rem;
+	}
+
+	.btn-primary,
+	.btn-secondary {
+		padding: 0.75rem 2rem;
+		border-radius: 6px;
+		font-size: 1rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+		border: none;
+	}
+
+	.btn-primary {
+		background: #4a90e2;
+		color: white;
+	}
+
+	.btn-primary:hover {
+		background: #357abd;
+	}
+
+	.btn-secondary {
+		background: rgba(255, 255, 255, 0.1);
+		color: #b0b0b0;
+		border: 1px solid rgba(255, 255, 255, 0.2);
+	}
+
+	.btn-secondary:hover {
+		background: rgba(255, 255, 255, 0.15);
+		color: #fff;
+	}
+
+	.alert {
+		padding: 1rem;
+		border-radius: 6px;
+		margin-top: 1rem;
+		text-align: center;
+		font-weight: 500;
+	}
+
+	.alert.success {
+		background: rgba(76, 175, 80, 0.2);
+		border: 1px solid #4caf50;
+		color: #4caf50;
+	}
+
+	.alert.error {
+		background: rgba(244, 67, 54, 0.2);
+		border: 1px solid #f44336;
+		color: #f44336;
+	}
+
+	.section-description {
+		color: #888;
+		font-size: 0.95rem;
+		margin-bottom: 1.5rem;
+	}
+
+	.loading-devices {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 1rem;
+		color: #888;
+	}
+
+	.spinner-small {
+		width: 20px;
+		height: 20px;
+		border: 2px solid #333;
+		border-top: 2px solid #4a90e2;
+		border-radius: 50%;
+		animation: spin 1s linear infinite;
+	}
+
+	@keyframes spin {
+		0% {
+			transform: rotate(0deg);
+		}
+		100% {
+			transform: rotate(360deg);
+		}
+	}
+
+	.no-devices {
+		text-align: center;
+		padding: 2rem;
+		color: #666;
+		font-style: italic;
+	}
+
+	.devices-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+		gap: 1rem;
+	}
+
+	.device-item {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		padding: 0.75rem 1rem;
+		background: rgba(255, 255, 255, 0.05);
+		border: 1px solid rgba(255, 255, 255, 0.1);
+		border-radius: 8px;
+		transition: all 0.2s;
+	}
+
+	.device-item.hidden {
+		opacity: 0.5;
+		background: rgba(255, 255, 255, 0.02);
+	}
+
+	.device-name {
+		font-weight: 500;
+		color: #fff;
+	}
+
+	.device-item.hidden .device-name {
+		color: #888;
+		text-decoration: line-through;
+	}
+
+	.visibility-btn {
+		display: flex;
+		align-items: center;
+		gap: 0.3rem;
+		padding: 0.4rem 0.75rem;
+		border-radius: 6px;
+		font-size: 0.85rem;
+		font-weight: 500;
+		cursor: pointer;
+		transition: all 0.2s;
+		border: none;
+		background: rgba(76, 175, 80, 0.2);
+		color: #4caf50;
+	}
+
+	.visibility-btn.hidden {
+		background: rgba(74, 144, 226, 0.2);
+		color: #4a90e2;
+	}
+
+	.visibility-btn:hover {
+		transform: scale(1.05);
+	}
+
+	.btn-icon {
+		width: 16px;
+		height: 16px;
+	}
+
+	@media (max-width: 768px) {
+		.settings-grid {
+			grid-template-columns: 1fr;
+		}
+
+		.preview-bar {
+			grid-template-columns: 1fr;
+		}
+
+		.actions {
+			flex-direction: column;
+		}
+
+		.btn-primary,
+		.btn-secondary {
+			width: 100%;
+		}
+	}
+</style>

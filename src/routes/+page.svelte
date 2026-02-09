@@ -41,11 +41,14 @@
 			<button class="back-button" on:click={goBackToDeviceSelector}> ← Back to Devices </button>
 		</div>
 
-		<TemperatureHumidityChart {selectedDevice} />
+		<div class="dashboard-content">
+			<div class="chart-section">
+				<TemperatureHumidityChart {selectedDevice} />
+			</div>
 
-		<div class="metrics-section">
-			<!-- <DateTimeDisplay /> -->
-			<MetricCards {selectedDevice} />
+			<div class="metrics-section">
+				<MetricCards {selectedDevice} />
+			</div>
 		</div>
 	{/if}
 </main>
@@ -72,22 +75,37 @@
 		background: rgba(74, 144, 226, 0.1);
 	}
 
-	.metrics-section {
-		display: grid;
-		grid-template-columns: repeat(4, 1fr);
+	.dashboard-content {
+		display: flex;
+		flex-direction: column;
 		gap: 1rem;
-		margin-top: 2rem;
+		height: calc(100vh - 200px);
+	}
+
+	.chart-section {
+		flex: 4;
+		min-height: 0;
+	}
+
+	.metrics-section {
+		flex: 1;
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+		gap: 1rem;
+		width: 100%;
+		align-items: start;
 	}
 
 	@media (max-width: 1200px) {
 		.metrics-section {
-			grid-template-columns: repeat(2, 1fr);
+			grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
 		}
 	}
 
 	@media (max-width: 768px) {
 		.metrics-section {
 			grid-template-columns: 1fr;
+			gap: 0.75rem;
 		}
 	}
 </style>
