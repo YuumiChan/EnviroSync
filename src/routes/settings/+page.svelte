@@ -561,14 +561,6 @@
 			grid-template-columns: 1fr;
 		}
 
-		.preview-bar {
-			grid-template-columns: 1fr;
-		}
-
-		.actions {
-			flex-direction: column;
-		}
-
 		.btn-primary,
 		.btn-secondary {
 			width: 100%;
