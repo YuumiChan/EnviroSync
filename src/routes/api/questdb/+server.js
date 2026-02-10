@@ -1,8 +1,8 @@
 import { env } from "$env/dynamic/private";
 import { json } from "@sveltejs/kit";
 
-const QUESTDB_URL = env.VITE_API_BASE_URL || "https://questdb.justpi.tech";
-const TABLE_NAME = env.VITE_TABLE_NAME || "thesis.csv";
+const QUESTDB_URL = env.API_BASE_URL || "https://questdb.justpi.tech";
+const TABLE_NAME = env.TABLE_NAME || "thesis_testing";
 
 // Export for use in other modules
 export const config = {
