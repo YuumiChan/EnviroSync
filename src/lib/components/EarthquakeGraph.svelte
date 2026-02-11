@@ -20,7 +20,19 @@
 			const tableName = getTableName();
 
 			// Get RMS data from all devices for last 24 hours where quake_flag = 2
-			const query = `SELECT ts, ${deviceCol} as device, rms FROM ${tableName} WHERE quake_flag = 2 AND ts > dateadd('h', -24, now()) ORDER BY ts ASC`;
+			// Use UNION to combine sampled historical data with the absolute latest point
+			const query = `
+				SELECT ts, ${deviceCol} as device, rms 
+				FROM ${tableName} 
+				WHERE quake_flag = 2 AND ts > dateadd('h', -24, now()) 
+				AND ts < (SELECT MAX(ts) FROM ${tableName} WHERE quake_flag = 2)
+				UNION ALL
+				SELECT ts, ${deviceCol} as device, rms 
+				FROM ${tableName} 
+				WHERE quake_flag = 2 
+				AND ts = (SELECT MAX(ts) FROM ${tableName} WHERE quake_flag = 2)
+				ORDER BY ts ASC
+			`;
 
 			const response = await fetch(`/api/questdb?query=${encodeURIComponent(query)}`);
 

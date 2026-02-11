@@ -4,52 +4,100 @@
 
 	const dispatch = createEventDispatcher();
 
-	let lastEarthquakeTime = "No earthquakes detected";
+	let earthquakeDetections = [];
 	let loading = true;
 	let refreshInterval;
+	export let hasEarthquakes = false;
 
-	async function fetchLastEarthquake() {
+	async function fetchEarthquakeDetections() {
 		try {
 			const deviceColName = await getDeviceColumnName();
 			const deviceCol = getQuotedColumn(deviceColName);
 			const tableName = getTableName();
 
-			// Get last time when quake_flag=2 from any device
-			const query = `SELECT ts, ${deviceCol} as device FROM ${tableName} WHERE quake_flag = 2 ORDER BY ts DESC LIMIT 1`;
+			// Load settings from localStorage
+			const savedSettings = localStorage.getItem("enviroSyncSettings");
+			const settings = savedSettings
+				? JSON.parse(savedSettings)
+				: {
+						weakEarthquakeThreshold: 0.01,
+						strongEarthquakeThreshold: 0.1,
+					};
+
+			// Get all devices that currently have quake_flag = 2 with their latest RMS values
+			// Check last 24 hours to determine if card should be shown
+			const query = `
+				SELECT ${deviceCol} as device, ts, rms 
+				FROM ${tableName} 
+				WHERE quake_flag = 2 
+				AND ts > dateadd('h', -24, now())
+				ORDER BY ts DESC
+			`;
 
 			const response = await fetch(`/api/questdb?query=${encodeURIComponent(query)}`);
 
 			if (response.ok) {
 				const result = await response.json();
 				if (result.dataset && result.dataset.length > 0) {
-					const [timestamp, device] = result.dataset[0];
-					// Treat timestamp as already in local time (UTC+8)
-					const timestampStr = timestamp.replace("Z", "");
-					const date = new Date(timestampStr);
-					lastEarthquakeTime = date.toLocaleString("en-US", {
-						month: "short",
-						day: "numeric",
-						year: "numeric",
-						hour: "numeric",
-						minute: "2-digit",
-						hour12: true,
+					hasEarthquakes = true;
+					// Group by device and get the latest detection for each (showing only if within last 30 seconds)
+					const deviceMap = new Map();
+					const now = new Date();
+					const thirtySecondsAgo = new Date(now.getTime() - 30 * 1000);
+
+					result.dataset.forEach(([device, timestamp, rms]) => {
+						if (!deviceMap.has(device)) {
+							const timestampStr = timestamp.replace("Z", "");
+							const date = new Date(timestampStr);
+
+							// Only show detections from last 30 seconds (active)
+							if (date >= thirtySecondsAgo) {
+								const rmsValue = parseFloat(rms);
+
+								// Determine intensity based on thresholds
+								let intensity = "Weak";
+								if (rmsValue >= settings.strongEarthquakeThreshold) {
+									intensity = "Strong";
+								} else if (rmsValue >= settings.weakEarthquakeThreshold) {
+									intensity = "Moderate";
+								}
+
+								deviceMap.set(device, {
+									device,
+									timestamp: date,
+									rms: rmsValue,
+									intensity,
+									formattedTime: date.toLocaleString("en-US", {
+										month: "short",
+										day: "numeric",
+										hour: "numeric",
+										minute: "2-digit",
+										hour12: true,
+									}),
+								});
+							}
+						}
 					});
+
+					earthquakeDetections = Array.from(deviceMap.values());
 				} else {
-					lastEarthquakeTime = "No earthquakes detected";
+					hasEarthquakes = false;
+					earthquakeDetections = [];
 				}
 			}
 		} catch (error) {
-			console.error("Error fetching earthquake detection:", error);
-			lastEarthquakeTime = "Error loading data";
+			console.error("Error fetching earthquake detections:", error);
+			hasEarthquakes = false;
+			earthquakeDetections = [];
 		} finally {
 			loading = false;
 		}
 	}
 
 	onMount(() => {
-		fetchLastEarthquake();
+		fetchEarthquakeDetections();
 		// Refresh every 3 seconds
-		refreshInterval = setInterval(fetchLastEarthquake, 3000);
+		refreshInterval = setInterval(fetchEarthquakeDetections, 3000);
 	});
 
 	onDestroy(() => {
@@ -63,7 +111,25 @@
 	<div class="device-header">
 		<h3>Earthquake Detection</h3>
 	</div>
-	<div class="metric-value earthquake">{loading ? "..." : lastEarthquakeTime}</div>
+
+	{#if loading}
+		<div class="loading">Loading...</div>
+	{:else if earthquakeDetections.length === 0}
+		<div class="metric-value earthquake">No earthquakes detected</div>
+	{:else}
+		<div class="detections-list">
+			{#each earthquakeDetections as detection}
+				<div class="detection-item {detection.intensity.toLowerCase()}">
+					<div class="detection-header">
+						<span class="device-name">{detection.device}</span>
+						<span class="intensity-badge {detection.intensity.toLowerCase()}">{detection.intensity}</span>
+					</div>
+					<div class="detection-time">{detection.formattedTime}</div>
+					<div class="detection-rms">RMS: {detection.rms.toFixed(3)}g</div>
+				</div>
+			{/each}
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -81,6 +147,8 @@
 		flex-direction: column;
 		gap: 1.5rem;
 		min-height: 200px;
+		max-height: 400px;
+		overflow-y: auto;
 	}
 
 	.device-header h3 {
@@ -88,6 +156,12 @@
 		font-weight: 600;
 		margin: 0;
 		color: #fff;
+		text-align: center;
+	}
+
+	.loading {
+		font-size: 1.2rem;
+		color: #888;
 		text-align: center;
 	}
 
@@ -100,5 +174,100 @@
 
 	.metric-value.earthquake {
 		color: #9c27b0;
+	}
+
+	.detections-list {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+		max-height: 280px;
+		overflow-y: auto;
+	}
+
+	.detection-item {
+		background: rgba(0, 0, 0, 0.3);
+		border-radius: 8px;
+		padding: 1rem;
+		border-left: 4px solid;
+		text-align: left;
+	}
+
+	.detection-item.weak {
+		border-left-color: #4caf50;
+	}
+
+	.detection-item.moderate {
+		border-left-color: #ff9800;
+	}
+
+	.detection-item.strong {
+		border-left-color: #f44336;
+	}
+
+	.detection-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 0.5rem;
+	}
+
+	.device-name {
+		font-size: 1.1rem;
+		font-weight: 600;
+		color: #fff;
+	}
+
+	.intensity-badge {
+		padding: 0.25rem 0.75rem;
+		border-radius: 12px;
+		font-size: 0.85rem;
+		font-weight: 600;
+		text-transform: uppercase;
+	}
+
+	.intensity-badge.weak {
+		background: rgba(76, 175, 80, 0.2);
+		color: #4caf50;
+	}
+
+	.intensity-badge.moderate {
+		background: rgba(255, 152, 0, 0.2);
+		color: #ff9800;
+	}
+
+	.intensity-badge.strong {
+		background: rgba(244, 67, 54, 0.2);
+		color: #f44336;
+	}
+
+	.detection-time {
+		font-size: 0.95rem;
+		color: #b0b0b0;
+		margin-bottom: 0.25rem;
+	}
+
+	.detection-rms {
+		font-size: 0.9rem;
+		color: #888;
+		font-family: monospace;
+	}
+
+	/* Custom scrollbar for detections list */
+	.detections-list::-webkit-scrollbar {
+		width: 6px;
+	}
+
+	.detections-list::-webkit-scrollbar-track {
+		background: rgba(0, 0, 0, 0.2);
+		border-radius: 3px;
+	}
+
+	.detections-list::-webkit-scrollbar-thumb {
+		background: rgba(156, 39, 176, 0.5);
+		border-radius: 3px;
+	}
+
+	.detections-list::-webkit-scrollbar-thumb:hover {
+		background: rgba(156, 39, 176, 0.7);
 	}
 </style>

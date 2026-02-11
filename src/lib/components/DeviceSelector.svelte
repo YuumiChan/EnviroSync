@@ -9,6 +9,7 @@
 	let devices = [];
 	let loading = true;
 	let error = null;
+	let hasEarthquakes = false;
 
 	// Device data with current readings
 	let deviceData = {};
@@ -87,6 +88,8 @@
 						humidNormalMax: 80,
 						humidSevere: 90,
 						rmsEarthquakeThreshold: 0.05,
+						weakEarthquakeThreshold: 0.01,
+						strongEarthquakeThreshold: 0.1,
 					};
 
 			const promises = devices.map(async (deviceId) => {
@@ -220,9 +223,11 @@
 		</div>
 	{:else}
 		<div class="devices-grid">
-			<div class="rms-card-wrapper">
-				<RmsCard on:showEarthquakeGraph />
-			</div>
+			{#if hasEarthquakes}
+				<div class="rms-card-wrapper">
+					<RmsCard bind:hasEarthquakes on:showEarthquakeGraph />
+				</div>
+			{/if}
 			{#each devices as deviceId}
 				<button class="device-card" class:stale-data={isDeviceDataStale(deviceId)} style="background-color: {getStatusColor(deviceData[deviceId]?.status || 'Normal')};" on:click={() => selectDevice(deviceId)}>
 					<div class="device-header">

@@ -15,6 +15,8 @@
 	let humidSevere = 90;
 
 	let rmsEarthquakeThreshold = 0.05;
+	let weakEarthquakeThreshold = 0.01; // RMS for weak earthquake (Magnitude ~2.1)
+	let strongEarthquakeThreshold = 0.1; // RMS for strong earthquake (Magnitude ~4.4)
 
 	let saveSuccess = false;
 	let saveError = "";
@@ -73,6 +75,8 @@
 				humidNormalMax = settings.humidNormalMax ?? 80;
 				humidSevere = settings.humidSevere ?? 90;
 				rmsEarthquakeThreshold = settings.rmsEarthquakeThreshold ?? 0.05;
+				weakEarthquakeThreshold = settings.weakEarthquakeThreshold ?? 0.01;
+				strongEarthquakeThreshold = settings.strongEarthquakeThreshold ?? 0.1;
 			} catch (err) {
 				console.error("Error loading settings:", err);
 			}
@@ -108,6 +112,14 @@
 				saveError = "RMS threshold must be greater than 0";
 				return;
 			}
+			if (weakEarthquakeThreshold <= 0 || weakEarthquakeThreshold >= strongEarthquakeThreshold) {
+				saveError = "Weak earthquake threshold must be greater than 0 and less than strong threshold";
+				return;
+			}
+			if (strongEarthquakeThreshold <= weakEarthquakeThreshold) {
+				saveError = "Strong earthquake threshold must be greater than weak threshold";
+				return;
+			}
 
 			// Save to localStorage
 			const settings = {
@@ -118,6 +130,8 @@
 				humidNormalMax,
 				humidSevere,
 				rmsEarthquakeThreshold,
+				weakEarthquakeThreshold,
+				strongEarthquakeThreshold,
 			};
 
 			localStorage.setItem("enviroSyncSettings", JSON.stringify(settings));
@@ -143,6 +157,8 @@
 		humidNormalMax = 80;
 		humidSevere = 90;
 		rmsEarthquakeThreshold = 0.05;
+		weakEarthquakeThreshold = 0.01;
+		strongEarthquakeThreshold = 0.1;
 	}
 </script>
 
@@ -211,22 +227,58 @@
 				<svg class="icon" viewBox="0 0 24 24" fill="currentColor">
 					<path d="M15.54 5.54L13.77 7.3 12 5.54 10.23 7.3 8.46 5.54 12 2zm5.23 5.23l-1.77-1.77L15.54 12l3.46 3.46 1.77-1.77-3.46-3.46zM8.46 18.46L12 22l3.54-3.54L13.77 16.7 12 18.46l-1.77-1.76zm-5.23-5.23L1.46 12l1.77 1.77L6.69 10.23 3.23 13.23z" />
 				</svg>
-				Earthquake Detection Threshold
+				Earthquake Detection Thresholds
 			</h2>
 			<div class="settings-grid">
 				<div class="setting-item">
-					<label for="rmsThreshold">RMS Magnitude (g-force)</label>
+					<label for="rmsThreshold">General Detection Threshold (g)</label>
 					<input type="number" id="rmsThreshold" bind:value={rmsEarthquakeThreshold} step="0.001" min="0.001" />
-					<small>Default: 0.05g (noticeable earthquake)</small>
+					<small>Minimum RMS to trigger earthquake detection</small>
+				</div>
+				<div class="setting-item">
+					<label for="weakThreshold">Weak Earthquake Threshold (g)</label>
+					<input type="number" id="weakThreshold" bind:value={weakEarthquakeThreshold} step="0.001" min="0.001" />
+					<small>RMS below this is considered weak (default: 0.01g ≈ Mag 2.1)</small>
+				</div>
+				<div class="setting-item">
+					<label for="strongThreshold">Strong Earthquake Threshold (g)</label>
+					<input type="number" id="strongThreshold" bind:value={strongEarthquakeThreshold} step="0.001" min="0.001" />
+					<small>RMS above this is considered strong (default: 0.1g ≈ Mag 4.4)</small>
 				</div>
 			</div>
 			<div class="info-box">
-				<p><strong>Reference Guide:</strong></p>
-				<ul>
-					<li>0.001g - 0.020g: Normal environmental vibration</li>
-					<li>0.021g - 0.050g: Pay attention zone</li>
-					<li>&gt; 0.050g: Noticeable earthquake (recommended)</li>
-				</ul>
+				<p><strong>RMS to Magnitude Conversion Guide:</strong></p>
+				<div class="magnitude-table">
+					<div class="table-header">
+						<span>RMS (g)</span>
+						<span>Display Magnitude</span>
+					</div>
+					<div class="table-row">
+						<span>0.003</span>
+						<span>1.1</span>
+					</div>
+					<div class="table-row">
+						<span>0.01</span>
+						<span>2.1</span>
+					</div>
+					<div class="table-row">
+						<span>0.03</span>
+						<span>3.2</span>
+					</div>
+					<div class="table-row">
+						<span>0.1</span>
+						<span>4.4</span>
+					</div>
+					<div class="table-row">
+						<span>0.3</span>
+						<span>5.5</span>
+					</div>
+					<div class="table-row">
+						<span>0.7</span>
+						<span>6.4</span>
+					</div>
+				</div>
+				<p style="margin-top: 0.75rem; font-size: 0.9rem;"><strong>Note:</strong> Earthquakes below weak threshold are minor vibrations, between weak and strong are moderate, and above strong are significant seismic events.</p>
 			</div>
 		</div>
 
@@ -388,14 +440,35 @@
 		color: #4a90e2;
 	}
 
-	.info-box ul {
-		margin: 0;
-		padding-left: 1.5rem;
+	.magnitude-table {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		margin-top: 0.5rem;
+		font-size: 0.9rem;
+	}
+
+	.table-header {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		padding: 0.5rem;
+		background: rgba(74, 144, 226, 0.2);
+		border-radius: 4px;
+		font-weight: 600;
+		color: #4a90e2;
+	}
+
+	.table-row {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		padding: 0.4rem 0.5rem;
+		background: rgba(255, 255, 255, 0.05);
+		border-radius: 3px;
 		color: #b0b0b0;
 	}
 
-	.info-box li {
-		margin-bottom: 0.3rem;
+	.table-row:hover {
+		background: rgba(255, 255, 255, 0.08);
 	}
 
 	.actions {

@@ -31,13 +31,19 @@
 				: {
 						tempSevere: 40,
 						humidSevere: 90,
+						weakEarthquakeThreshold: 0.01,
+						strongEarthquakeThreshold: 0.1,
 					};
 
 			// Fetch severe status events using dynamic thresholds
 			const severeQuery = `SELECT ts, ${deviceCol} as device, temp, humid FROM ${tableName} WHERE (temp > ${settings.tempSevere} OR humid > ${settings.humidSevere}) AND ts > dateadd('d', -7, now()) ORDER BY ts DESC LIMIT 50`;
 
-			// Fetch devices that have been offline (no data in 30+ minutes) with last readings
-			const offlineQuery = `SELECT ${deviceCol} as device, MAX(ts) as last_seen FROM ${tableName} GROUP BY ${deviceCol} HAVING MAX(ts) < dateadd('m', -30, now())`;
+			// Fetch all devices and their last update time to check if offline (no data in 30+ minutes)
+			const offlineQuery = `SELECT ${deviceCol} as device, MAX(ts) as last_seen, 
+				LAST(temp) as last_temp, LAST(humid) as last_humid 
+				FROM ${tableName} 
+				GROUP BY ${deviceCol} 
+				HAVING MAX(ts) < dateadd('m', -30, now())`;
 
 			// Fetch earthquake detection events (quake_flag = 2)
 			const earthquakeQuery = `SELECT ts, ${deviceCol} as device, rms FROM ${tableName} WHERE quake_flag = 2 AND ts > dateadd('d', -7, now()) ORDER BY ts DESC LIMIT 50`;
@@ -64,34 +70,15 @@
 			if (offlineResponse.ok) {
 				const result = await offlineResponse.json();
 				if (result.dataset && result.dataset.length > 0) {
-					// For each offline device, fetch its last readings
-					const offlinePromises = result.dataset.map(async ([device, lastSeen]) => {
+					offlineDevices = result.dataset.map(([device, lastSeen, lastTemp, lastHumid]) => {
 						const timestampStr = lastSeen.replace("Z", "");
-
-						// Fetch last temp and humid for this device
-						const lastDataQuery = `SELECT temp, humid FROM ${tableName} WHERE ${deviceCol}='${device}' ORDER BY ts DESC LIMIT 1`;
-						const lastDataResponse = await fetch(`/api/questdb?query=${encodeURIComponent(lastDataQuery)}`);
-
-						let lastTemp = "N/A";
-						let lastHumid = "N/A";
-
-						if (lastDataResponse.ok) {
-							const lastDataResult = await lastDataResponse.json();
-							if (lastDataResult.dataset && lastDataResult.dataset.length > 0) {
-								lastTemp = parseFloat(lastDataResult.dataset[0][0]).toFixed(2);
-								lastHumid = parseFloat(lastDataResult.dataset[0][1]).toFixed(1);
-							}
-						}
-
 						return {
 							device,
 							lastSeen: new Date(timestampStr),
-							lastTemp,
-							lastHumid,
+							lastTemp: lastTemp ? parseFloat(lastTemp).toFixed(2) : "N/A",
+							lastHumid: lastHumid ? parseFloat(lastHumid).toFixed(1) : "N/A",
 						};
 					});
-
-					offlineDevices = await Promise.all(offlinePromises);
 				} else {
 					offlineDevices = [];
 				}
@@ -102,10 +89,21 @@
 				if (result.dataset && result.dataset.length > 0) {
 					earthquakeEvents = result.dataset.map(([ts, device, rms]) => {
 						const timestampStr = ts.replace("Z", "");
+						const rmsValue = parseFloat(rms);
+
+						// Determine intensity based on thresholds
+						let intensity = "Weak";
+						if (rmsValue >= settings.strongEarthquakeThreshold) {
+							intensity = "Strong";
+						} else if (rmsValue >= settings.weakEarthquakeThreshold) {
+							intensity = "Moderate";
+						}
+
 						return {
 							time: new Date(timestampStr),
 							device,
-							rms: parseFloat(rms).toFixed(4),
+							rms: rmsValue.toFixed(4),
+							intensity,
 						};
 					});
 				} else {
@@ -183,11 +181,11 @@
 					{:else}
 						{#each showAllEarthquake ? earthquakeEvents : earthquakeEvents.slice(0, 3) as event}
 							<div class="event-item">
-								<div class="event-time">{formatDateTime(event.time)}</div>
 								<div class="event-details">
-									<span class="device-badge">{event.device}</span>
-									<span class="metric">RMS: {event.rms}g</span>
+									<span class="intensity-badge {event.intensity.toLowerCase()}">{event.intensity}</span>
+									<span class="event-time">{formatDateTime(event.time)}</span>
 								</div>
+								<div class="metric">RMS: {event.rms}g</div>
 								<div class="event-relative">{formatRelativeTime(event.time)}</div>
 							</div>
 						{/each}
@@ -430,6 +428,29 @@
 		border-radius: 6px;
 		font-weight: 600;
 		font-size: 0.9rem;
+	}
+
+	.intensity-badge {
+		padding: 0.3rem 0.8rem;
+		border-radius: 6px;
+		font-weight: 600;
+		font-size: 0.9rem;
+		text-transform: uppercase;
+	}
+
+	.intensity-badge.weak {
+		background: rgba(76, 175, 80, 0.2);
+		color: #4caf50;
+	}
+
+	.intensity-badge.moderate {
+		background: rgba(255, 152, 0, 0.2);
+		color: #ff9800;
+	}
+
+	.intensity-badge.strong {
+		background: rgba(244, 67, 54, 0.2);
+		color: #f44336;
 	}
 
 	.metric {

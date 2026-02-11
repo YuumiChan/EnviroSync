@@ -120,6 +120,8 @@
 					humidNormalMax: 80,
 					humidSevere: 90,
 					rmsEarthquakeThreshold: 0.05,
+					weakEarthquakeThreshold: 0.01,
+					strongEarthquakeThreshold: 0.1,
 				};
 
 		// Define normal ranges using settings

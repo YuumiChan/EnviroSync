@@ -1,6 +1,7 @@
 <script>
 	import ConnectionStatus from "$lib/components/ConnectionStatus.svelte";
 	import Sidebar from "$lib/components/Sidebar.svelte";
+	import { getHiddenDeviceIds } from "$lib/deviceFilter.js";
 	import { getDeviceColumnName, getQuotedColumn, getTableName } from "$lib/questdbHelpers.js";
 	import html2canvas from "html2canvas";
 	import { onMount } from "svelte";
@@ -39,6 +40,15 @@
 				timeCondition = `AND ts > dateadd('h', -${selectedOpt.hours}, now())`;
 			}
 
+			// Load earthquake thresholds from localStorage
+			const savedSettings = localStorage.getItem("enviroSyncSettings");
+			const settings = savedSettings
+				? JSON.parse(savedSettings)
+				: {
+						weakEarthquakeThreshold: 0.01,
+						strongEarthquakeThreshold: 0.1,
+					};
+
 			// Query for summary statistics
 			const summaryQuery = `
 				SELECT 
@@ -58,30 +68,78 @@
 				ORDER BY ${deviceCol}
 			`;
 
-			const response = await fetch(`/api/questdb?query=${encodeURIComponent(summaryQuery)}`);
+			// Query for earthquake detections
+			const earthquakeQuery = `
+				SELECT 
+					${deviceCol} as device,
+					COUNT(*) as total_earthquakes,
+					SUM(CASE WHEN rms >= ${settings.strongEarthquakeThreshold} THEN 1 ELSE 0 END) as strong_count,
+					SUM(CASE WHEN rms >= ${settings.weakEarthquakeThreshold} AND rms < ${settings.strongEarthquakeThreshold} THEN 1 ELSE 0 END) as moderate_count,
+					SUM(CASE WHEN rms < ${settings.weakEarthquakeThreshold} THEN 1 ELSE 0 END) as weak_count,
+					MAX(rms) as max_rms
+				FROM ${tableName}
+				WHERE quake_flag = 2 ${timeCondition}
+				GROUP BY ${deviceCol}
+				ORDER BY ${deviceCol}
+			`;
 
-			if (response.ok) {
-				const result = await response.json();
+			const [summaryResponse, earthquakeResponse] = await Promise.all([fetch(`/api/questdb?query=${encodeURIComponent(summaryQuery)}`), fetch(`/api/questdb?query=${encodeURIComponent(earthquakeQuery)}`)]);
+
+			if (summaryResponse.ok) {
+				const result = await summaryResponse.json();
+				const earthquakeResult = earthquakeResponse.ok ? await earthquakeResponse.json() : null;
+
+				// Create a map of earthquake data by device
+				const earthquakeMap = new Map();
+				if (earthquakeResult && earthquakeResult.dataset) {
+					earthquakeResult.dataset.forEach((row) => {
+						earthquakeMap.set(row[0], {
+							totalEarthquakes: row[1] || 0,
+							strongCount: row[2] || 0,
+							moderateCount: row[3] || 0,
+							weakCount: row[4] || 0,
+							maxRms: row[5] ? parseFloat(row[5]).toFixed(3) : "0.000",
+						});
+					});
+				}
+
 				if (result.dataset && result.dataset.length > 0) {
-					analyticsData = result.dataset.map((row) => ({
-						device: row[0],
-						totalRecords: row[1],
-						minTemp: parseFloat(row[2]).toFixed(2),
-						maxTemp: parseFloat(row[3]).toFixed(2),
-						avgTemp: parseFloat(row[4]).toFixed(2),
-						minHumid: parseFloat(row[5]).toFixed(1),
-						maxHumid: parseFloat(row[6]).toFixed(1),
-						avgHumid: parseFloat(row[7]).toFixed(1),
-						firstRecord: new Date(row[8]).toLocaleString(),
-						lastRecord: new Date(row[9]).toLocaleString(),
-					}));
+					// Get list of hidden devices
+					const hiddenDevices = getHiddenDeviceIds();
+
+					analyticsData = result.dataset
+						.map((row) => {
+							const device = row[0];
+							const earthquakeData = earthquakeMap.get(device) || {
+								totalEarthquakes: 0,
+								strongCount: 0,
+								moderateCount: 0,
+								weakCount: 0,
+								maxRms: "0.000",
+							};
+
+							return {
+								device: device,
+								totalRecords: row[1],
+								minTemp: parseFloat(row[2]).toFixed(2),
+								maxTemp: parseFloat(row[3]).toFixed(2),
+								avgTemp: parseFloat(row[4]).toFixed(2),
+								minHumid: parseFloat(row[5]).toFixed(1),
+								maxHumid: parseFloat(row[6]).toFixed(1),
+								avgHumid: parseFloat(row[7]).toFixed(1),
+								firstRecord: new Date(row[8]).toLocaleString(),
+								lastRecord: new Date(row[9]).toLocaleString(),
+								...earthquakeData,
+							};
+						})
+						.filter((device) => !hiddenDevices.includes(device.device));
 					console.log(`Loaded analytics data for ${analyticsData.length} device(s)`);
 				} else {
 					console.warn("No data returned from analytics query");
 					analyticsData = [];
 				}
 			} else {
-				console.error("API error:", response.status, response.statusText);
+				console.error("API error:", summaryResponse.status, summaryResponse.statusText);
 				analyticsData = [];
 			}
 		} catch (error) {
@@ -263,6 +321,30 @@
 							<div class="stat-row">
 								<span class="stat-label">Average:</span>
 								<span class="stat-value">{device.avgHumid}</span>
+							</div>
+						</div>
+
+						<div class="stat-group">
+							<h4>Earthquake Detection</h4>
+							<div class="stat-row">
+								<span class="stat-label">Total Events:</span>
+								<span class="stat-value">{device.totalEarthquakes}</span>
+							</div>
+							<div class="stat-row">
+								<span class="stat-label">Strong:</span>
+								<span class="stat-value earthquake-strong">{device.strongCount}</span>
+							</div>
+							<div class="stat-row">
+								<span class="stat-label">Moderate:</span>
+								<span class="stat-value earthquake-moderate">{device.moderateCount}</span>
+							</div>
+							<div class="stat-row">
+								<span class="stat-label">Weak:</span>
+								<span class="stat-value earthquake-weak">{device.weakCount}</span>
+							</div>
+							<div class="stat-row">
+								<span class="stat-label">Max RMS:</span>
+								<span class="stat-value small">{device.maxRms}g</span>
 							</div>
 						</div>
 
@@ -464,6 +546,12 @@
 		gap: 1.5rem;
 	}
 
+	@media (min-width: 1200px) {
+		.stats-grid {
+			grid-template-columns: repeat(4, 1fr);
+		}
+	}
+
 	.stat-group {
 		background: rgba(0, 0, 0, 0.3);
 		padding: 1rem;
@@ -504,6 +592,18 @@
 	.stat-value.small {
 		font-size: 0.8rem;
 		text-align: right;
+	}
+
+	.stat-value.earthquake-strong {
+		color: #f44336;
+	}
+
+	.stat-value.earthquake-moderate {
+		color: #ff9800;
+	}
+
+	.stat-value.earthquake-weak {
+		color: #4caf50;
 	}
 
 	.no-data {
