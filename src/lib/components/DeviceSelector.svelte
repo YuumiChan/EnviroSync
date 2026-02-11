@@ -9,7 +9,6 @@
 	let devices = [];
 	let loading = true;
 	let error = null;
-	let hasEarthquakes = false;
 
 	// Device data with current readings
 	let deviceData = {};
@@ -223,11 +222,9 @@
 		</div>
 	{:else}
 		<div class="devices-grid">
-			{#if hasEarthquakes}
-				<div class="rms-card-wrapper">
-					<RmsCard bind:hasEarthquakes on:showEarthquakeGraph />
-				</div>
-			{/if}
+			<div class="rms-card-wrapper">
+				<RmsCard on:showEarthquakeGraph />
+			</div>
 			{#each devices as deviceId}
 				<button class="device-card" class:stale-data={isDeviceDataStale(deviceId)} style="background-color: {getStatusColor(deviceData[deviceId]?.status || 'Normal')};" on:click={() => selectDevice(deviceId)}>
 					<div class="device-header">
@@ -313,6 +310,14 @@
 		grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
 		gap: 2rem;
 		margin-top: 2rem;
+	}
+
+	.rms-card-wrapper {
+		display: block;
+	}
+
+	.rms-card-wrapper.hidden {
+		display: none;
 	}
 
 	.device-card {

@@ -40,42 +40,36 @@
 				const result = await response.json();
 				if (result.dataset && result.dataset.length > 0) {
 					hasEarthquakes = true;
-					// Group by device and get the latest detection for each (showing only if within last 30 seconds)
+					// Group by device and get the latest detection for each from last 24 hours
 					const deviceMap = new Map();
-					const now = new Date();
-					const thirtySecondsAgo = new Date(now.getTime() - 30 * 1000);
 
 					result.dataset.forEach(([device, timestamp, rms]) => {
 						if (!deviceMap.has(device)) {
 							const timestampStr = timestamp.replace("Z", "");
 							const date = new Date(timestampStr);
+							const rmsValue = parseFloat(rms);
 
-							// Only show detections from last 30 seconds (active)
-							if (date >= thirtySecondsAgo) {
-								const rmsValue = parseFloat(rms);
-
-								// Determine intensity based on thresholds
-								let intensity = "Weak";
-								if (rmsValue >= settings.strongEarthquakeThreshold) {
-									intensity = "Strong";
-								} else if (rmsValue >= settings.weakEarthquakeThreshold) {
-									intensity = "Moderate";
-								}
-
-								deviceMap.set(device, {
-									device,
-									timestamp: date,
-									rms: rmsValue,
-									intensity,
-									formattedTime: date.toLocaleString("en-US", {
-										month: "short",
-										day: "numeric",
-										hour: "numeric",
-										minute: "2-digit",
-										hour12: true,
-									}),
-								});
+							// Determine intensity based on thresholds
+							let intensity = "Weak";
+							if (rmsValue >= settings.strongEarthquakeThreshold) {
+								intensity = "Strong";
+							} else if (rmsValue >= settings.weakEarthquakeThreshold) {
+								intensity = "Moderate";
 							}
+
+							deviceMap.set(device, {
+								device,
+								timestamp: date,
+								rms: rmsValue,
+								intensity,
+								formattedTime: date.toLocaleString("en-US", {
+									month: "short",
+									day: "numeric",
+									hour: "numeric",
+									minute: "2-digit",
+									hour12: true,
+								}),
+							});
 						}
 					});
 
@@ -120,12 +114,8 @@
 		<div class="detections-list">
 			{#each earthquakeDetections as detection}
 				<div class="detection-item {detection.intensity.toLowerCase()}">
-					<div class="detection-header">
-						<span class="device-name">{detection.device}</span>
-						<span class="intensity-badge {detection.intensity.toLowerCase()}">{detection.intensity}</span>
-					</div>
+					<span class="intensity-badge {detection.intensity.toLowerCase()}">{detection.intensity}</span>
 					<div class="detection-time">{detection.formattedTime}</div>
-					<div class="detection-rms">RMS: {detection.rms.toFixed(3)}g</div>
 				</div>
 			{/each}
 		</div>
@@ -189,7 +179,11 @@
 		border-radius: 8px;
 		padding: 1rem;
 		border-left: 4px solid;
-		text-align: left;
+		text-align: center;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.5rem;
 	}
 
 	.detection-item.weak {
@@ -204,23 +198,10 @@
 		border-left-color: #f44336;
 	}
 
-	.detection-header {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-bottom: 0.5rem;
-	}
-
-	.device-name {
-		font-size: 1.1rem;
-		font-weight: 600;
-		color: #fff;
-	}
-
 	.intensity-badge {
-		padding: 0.25rem 0.75rem;
+		padding: 0.4rem 1rem;
 		border-radius: 12px;
-		font-size: 0.85rem;
+		font-size: 1rem;
 		font-weight: 600;
 		text-transform: uppercase;
 	}
@@ -241,15 +222,8 @@
 	}
 
 	.detection-time {
-		font-size: 0.95rem;
-		color: #b0b0b0;
-		margin-bottom: 0.25rem;
-	}
-
-	.detection-rms {
 		font-size: 0.9rem;
-		color: #888;
-		font-family: monospace;
+		color: #b0b0b0;
 	}
 
 	/* Custom scrollbar for detections list */
