@@ -4,6 +4,7 @@
 	import MetricCards from "$lib/components/MetricCards.svelte";
 	import Sidebar from "$lib/components/Sidebar.svelte";
 	import TemperatureHumidityChart from "$lib/components/TemperatureHumidityChart.svelte";
+	import { onMount } from "svelte";
 
 	let selectedDevice = null;
 	let showDashboard = false;
@@ -12,12 +13,45 @@
 		selectedDevice = event.detail.deviceId;
 		showDashboard = true;
 		console.log("Selected device:", selectedDevice);
+
+		// Push state to browser history
+		history.pushState({ device: selectedDevice }, "", `?device=${encodeURIComponent(selectedDevice)}`);
 	}
 
 	function goBackToDeviceSelector() {
 		showDashboard = false;
 		selectedDevice = null;
+
+		// Update URL without device parameter
+		history.pushState({}, "", window.location.pathname);
 	}
+
+	function handlePopState(event) {
+		if (event.state && event.state.device) {
+			selectedDevice = event.state.device;
+			showDashboard = true;
+		} else {
+			showDashboard = false;
+			selectedDevice = null;
+		}
+	}
+
+	onMount(() => {
+		// Handle browser back/forward buttons
+		window.addEventListener("popstate", handlePopState);
+
+		// Check URL for device parameter on page load
+		const params = new URLSearchParams(window.location.search);
+		const device = params.get("device");
+		if (device) {
+			selectedDevice = device;
+			showDashboard = true;
+		}
+
+		return () => {
+			window.removeEventListener("popstate", handlePopState);
+		};
+	});
 </script>
 
 <Sidebar />

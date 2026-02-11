@@ -45,8 +45,18 @@
 				GROUP BY ${deviceCol} 
 				HAVING MAX(ts) < dateadd('m', -30, now())`;
 
-			// Fetch earthquake detection events (quake_flag = 2)
-			const earthquakeQuery = `SELECT ts, ${deviceCol} as device, rms FROM ${tableName} WHERE quake_flag = 2 AND ts > dateadd('d', -7, now()) ORDER BY ts DESC LIMIT 50`;
+			// Fetch earthquake detection events - showing peak RMS for each event
+			const earthquakeQuery = `
+				SELECT 
+					FIRST(ts) as event_start,
+					${deviceCol} as device,
+					MAX(rms) as peak_rms
+				FROM ${tableName}
+				WHERE quake_flag = 2 AND ts > dateadd('d', -7, now())
+				SAMPLE BY 5m ALIGN TO CALENDAR
+				ORDER BY event_start DESC
+				LIMIT 50
+			`;
 
 			const [severeResponse, offlineResponse, earthquakeResponse] = await Promise.all([fetch(`/api/questdb?query=${encodeURIComponent(severeQuery)}`), fetch(`/api/questdb?query=${encodeURIComponent(offlineQuery)}`), fetch(`/api/questdb?query=${encodeURIComponent(earthquakeQuery)}`)]);
 
@@ -87,11 +97,11 @@
 			if (earthquakeResponse.ok) {
 				const result = await earthquakeResponse.json();
 				if (result.dataset && result.dataset.length > 0) {
-					earthquakeEvents = result.dataset.map(([ts, device, rms]) => {
-						const timestampStr = ts.replace("Z", "");
-						const rmsValue = parseFloat(rms);
+					earthquakeEvents = result.dataset.map(([eventStart, device, peakRms]) => {
+						const timestampStr = eventStart.replace("Z", "");
+						const rmsValue = parseFloat(peakRms);
 
-						// Determine intensity based on thresholds
+						// Determine intensity based on peak RMS thresholds
 						let intensity = "Weak";
 						if (rmsValue >= settings.strongEarthquakeThreshold) {
 							intensity = "Strong";

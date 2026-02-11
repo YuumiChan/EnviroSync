@@ -24,14 +24,17 @@
 						strongEarthquakeThreshold: 0.1,
 					};
 
-			// Get all devices that currently have quake_flag = 2 with their latest RMS values
-			// Check last 24 hours to determine if card should be shown
+			// Get peak RMS values for each earthquake event (grouped by 5-minute windows)
+			// This shows the max/peak from start of seismic activity until it becomes normal
 			const query = `
-				SELECT ${deviceCol} as device, ts, rms 
-				FROM ${tableName} 
-				WHERE quake_flag = 2 
-				AND ts > dateadd('h', -24, now())
-				ORDER BY ts DESC
+				SELECT 
+					${deviceCol} as device,
+					FIRST(ts) as event_start,
+					MAX(rms) as peak_rms
+				FROM ${tableName}
+				WHERE quake_flag = 2 AND ts > dateadd('h', -24, now())
+				SAMPLE BY 5m ALIGN TO CALENDAR
+				ORDER BY event_start DESC
 			`;
 
 			const response = await fetch(`/api/questdb?query=${encodeURIComponent(query)}`);
@@ -40,40 +43,38 @@
 				const result = await response.json();
 				if (result.dataset && result.dataset.length > 0) {
 					hasEarthquakes = true;
-					// Group by device and get the latest detection for each from last 24 hours
-					const deviceMap = new Map();
+					// Process peak RMS values for each earthquake event
+					const detections = [];
 
-					result.dataset.forEach(([device, timestamp, rms]) => {
-						if (!deviceMap.has(device)) {
-							const timestampStr = timestamp.replace("Z", "");
-							const date = new Date(timestampStr);
-							const rmsValue = parseFloat(rms);
+					result.dataset.forEach(([device, eventStart, peakRms]) => {
+						const timestampStr = eventStart.replace("Z", "");
+						const date = new Date(timestampStr);
+						const rmsValue = parseFloat(peakRms);
 
-							// Determine intensity based on thresholds
-							let intensity = "Weak";
-							if (rmsValue >= settings.strongEarthquakeThreshold) {
-								intensity = "Strong";
-							} else if (rmsValue >= settings.weakEarthquakeThreshold) {
-								intensity = "Moderate";
-							}
-
-							deviceMap.set(device, {
-								device,
-								timestamp: date,
-								rms: rmsValue,
-								intensity,
-								formattedTime: date.toLocaleString("en-US", {
-									month: "short",
-									day: "numeric",
-									hour: "numeric",
-									minute: "2-digit",
-									hour12: true,
-								}),
-							});
+						// Determine intensity based on peak RMS thresholds
+						let intensity = "Weak";
+						if (rmsValue >= settings.strongEarthquakeThreshold) {
+							intensity = "Strong";
+						} else if (rmsValue >= settings.weakEarthquakeThreshold) {
+							intensity = "Moderate";
 						}
+
+						detections.push({
+							device,
+							timestamp: date,
+							rms: rmsValue,
+							intensity,
+							formattedTime: date.toLocaleString("en-US", {
+								month: "short",
+								day: "numeric",
+								hour: "numeric",
+								minute: "2-digit",
+								hour12: true,
+							}),
+						});
 					});
 
-					earthquakeDetections = Array.from(deviceMap.values());
+					earthquakeDetections = detections;
 				} else {
 					hasEarthquakes = false;
 					earthquakeDetections = [];
@@ -112,7 +113,7 @@
 		<div class="metric-value earthquake">No earthquakes detected</div>
 	{:else}
 		<div class="detections-list">
-			{#each earthquakeDetections as detection}
+			{#each earthquakeDetections.slice(0, 1) as detection}
 				<div class="detection-item {detection.intensity.toLowerCase()}">
 					<span class="intensity-badge {detection.intensity.toLowerCase()}">{detection.intensity}</span>
 					<div class="detection-time">{detection.formattedTime}</div>
