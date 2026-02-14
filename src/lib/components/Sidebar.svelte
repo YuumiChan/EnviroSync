@@ -1,8 +1,24 @@
 <script>
+	import { goto } from "$app/navigation";
 	import { page } from "$app/stores";
+
+	let signingOut = false;
 
 	$: currentPath = $page.url.pathname;
 	$: currentRoute = currentPath === "/analytics" ? "analytics" : currentPath === "/notifications" ? "notifications" : currentPath === "/settings" ? "settings" : "dashboard";
+
+	async function handleSignOut() {
+		if (signingOut) return;
+		signingOut = true;
+		try {
+			await fetch("/api/auth/logout", { method: "POST" });
+			goto("/login");
+		} catch (err) {
+			console.error("Sign out error:", err);
+			// Force redirect even on error
+			goto("/login");
+		}
+	}
 </script>
 
 <nav class="sidebar">
@@ -43,17 +59,11 @@
 			</svg>
 			Settings
 		</a>
-		<button
-			class="nav-item"
-			class:active={currentRoute === "signout"}
-			on:click={() => {
-				/* handle signout */
-			}}
-		>
+		<button class="nav-item" on:click={handleSignOut} disabled={signingOut}>
 			<svg class="nav-icon" viewBox="0 0 24 24" fill="currentColor">
 				<path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z" />
 			</svg>
-			Sign Out
+			{signingOut ? "Signing out..." : "Sign Out"}
 		</button>
 	</div>
 </nav>

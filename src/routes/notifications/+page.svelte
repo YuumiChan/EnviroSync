@@ -1,22 +1,19 @@
 <script>
-	import Sidebar from "$lib/components/Sidebar.svelte";
 	import { getDeviceColumnName, getQuotedColumn, getTableName } from "$lib/questdbHelpers.js";
 	import { onMount } from "svelte";
 
 	let severeEvents = [];
-	let offlineDevices = [];
 	let earthquakeEvents = [];
 	let loading = true;
 
 	// Show more states
 	let showAllEarthquake = false;
 	let showAllSevere = false;
-	let showAllOffline = false;
 
 	async function fetchNotifications() {
 		try {
 			// Don't set loading=true after initial load to preserve scroll position
-			const isInitialLoad = severeEvents.length === 0 && earthquakeEvents.length === 0 && offlineDevices.length === 0;
+			const isInitialLoad = severeEvents.length === 0 && earthquakeEvents.length === 0;
 			if (isInitialLoad) {
 				loading = true;
 			}
@@ -38,13 +35,6 @@
 			// Fetch severe status events using dynamic thresholds
 			const severeQuery = `SELECT ts, ${deviceCol} as device, temp, humid FROM ${tableName} WHERE (temp > ${settings.tempSevere} OR humid > ${settings.humidSevere}) AND ts > dateadd('d', -7, now()) ORDER BY ts DESC LIMIT 50`;
 
-			// Fetch all devices and their last update time to check if offline (no data in 30+ minutes)
-			const offlineQuery = `SELECT ${deviceCol} as device, MAX(ts) as last_seen, 
-				LAST(temp) as last_temp, LAST(humid) as last_humid 
-				FROM ${tableName} 
-				GROUP BY ${deviceCol} 
-				HAVING MAX(ts) < dateadd('m', -30, now())`;
-
 			// Fetch earthquake detection events - showing peak RMS for each event
 			const earthquakeQuery = `
 				SELECT 
@@ -58,7 +48,7 @@
 				LIMIT 50
 			`;
 
-			const [severeResponse, offlineResponse, earthquakeResponse] = await Promise.all([fetch(`/api/questdb?query=${encodeURIComponent(severeQuery)}`), fetch(`/api/questdb?query=${encodeURIComponent(offlineQuery)}`), fetch(`/api/questdb?query=${encodeURIComponent(earthquakeQuery)}`)]);
+			const [severeResponse, earthquakeResponse] = await Promise.all([fetch(`/api/questdb?query=${encodeURIComponent(severeQuery)}`), fetch(`/api/questdb?query=${encodeURIComponent(earthquakeQuery)}`)]);
 
 			if (severeResponse.ok) {
 				const result = await severeResponse.json();
@@ -74,23 +64,6 @@
 					});
 				} else {
 					severeEvents = [];
-				}
-			}
-
-			if (offlineResponse.ok) {
-				const result = await offlineResponse.json();
-				if (result.dataset && result.dataset.length > 0) {
-					offlineDevices = result.dataset.map(([device, lastSeen, lastTemp, lastHumid]) => {
-						const timestampStr = lastSeen.replace("Z", "");
-						return {
-							device,
-							lastSeen: new Date(timestampStr),
-							lastTemp: lastTemp ? parseFloat(lastTemp).toFixed(2) : "N/A",
-							lastHumid: lastHumid ? parseFloat(lastHumid).toFixed(1) : "N/A",
-						};
-					});
-				} else {
-					offlineDevices = [];
 				}
 			}
 
@@ -159,130 +132,87 @@
 	});
 </script>
 
-<Sidebar />
+<div class="page-header">
+	<h1>Notifications</h1>
+</div>
 
-<main class="main-content">
-	<div class="page-header">
-		<h1>Notifications</h1>
-		<p class="subtitle">System alerts and event history (last 7 days)</p>
+{#if loading}
+	<div class="loading">
+		<div class="spinner"></div>
+		<p>Loading notifications...</p>
 	</div>
-
-	{#if loading}
-		<div class="loading">
-			<div class="spinner"></div>
-			<p>Loading notifications...</p>
-		</div>
-	{:else}
-		<div class="notifications-grid">
-			<!-- Earthquake Detections -->
-			<div class="notification-section earthquake">
-				<div class="section-header">
-					<h2>
-						<svg class="icon" viewBox="0 0 24 24" fill="currentColor">
-							<path d="M15.54 5.54L13.77 7.3 12 5.54 10.23 7.3 8.46 5.54 12 2zm5.23 5.23l-1.77-1.77L15.54 12l3.46 3.46 1.77-1.77-3.46-3.46zM8.46 18.46L12 22l3.54-3.54L13.77 16.7 12 18.46l-1.77-1.76zm-5.23-5.23L1.46 12l1.77 1.77L6.69 10.23 3.23 13.23z" />
-						</svg>
-						Earthquake Detections
-					</h2>
-					<span class="count">{earthquakeEvents.length}</span>
-				</div>
-				<div class="events-list">
-					{#if earthquakeEvents.length === 0}
-						<div class="no-events">No earthquake detections in the last 7 days</div>
-					{:else}
-						{#each showAllEarthquake ? earthquakeEvents : earthquakeEvents.slice(0, 3) as event}
-							<div class="event-item">
-								<div class="event-details">
-									<span class="intensity-badge {event.intensity.toLowerCase()}">{event.intensity}</span>
-									<span class="event-time">{formatDateTime(event.time)}</span>
-								</div>
-								<div class="metric">RMS: {event.rms}g</div>
-								<div class="event-relative">{formatRelativeTime(event.time)}</div>
-							</div>
-						{/each}
-						{#if earthquakeEvents.length > 3}
-							<button class="show-more-btn" on:click={() => (showAllEarthquake = !showAllEarthquake)}>
-								{showAllEarthquake ? "Show Less" : `Show More (${earthquakeEvents.length - 3} more)`}
-							</button>
-						{/if}
-					{/if}
-				</div>
+{:else}
+	<div class="notifications-grid">
+		<!-- Earthquake Detections -->
+		<div class="notification-section earthquake">
+			<div class="section-header">
+				<h2>
+					<svg class="icon" viewBox="0 0 24 24" fill="currentColor">
+						<path d="M15.54 5.54L13.77 7.3 12 5.54 10.23 7.3 8.46 5.54 12 2zm5.23 5.23l-1.77-1.77L15.54 12l3.46 3.46 1.77-1.77-3.46-3.46zM8.46 18.46L12 22l3.54-3.54L13.77 16.7 12 18.46l-1.77-1.76zm-5.23-5.23L1.46 12l1.77 1.77L6.69 10.23 3.23 13.23z" />
+					</svg>
+					Earthquake Detections
+				</h2>
+				<span class="count">{earthquakeEvents.length}</span>
 			</div>
-
-			<!-- Severe Conditions -->
-			<div class="notification-section severe">
-				<div class="section-header">
-					<h2>
-						<svg class="icon" viewBox="0 0 24 24" fill="currentColor">
-							<path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z" />
-						</svg>
-						Severe Conditions
-					</h2>
-					<span class="count">{severeEvents.length}</span>
-				</div>
-				<div class="events-list">
-					{#if severeEvents.length === 0}
-						<div class="no-events">No severe conditions in the last 7 days</div>
-					{:else}
-						{#each showAllSevere ? severeEvents : severeEvents.slice(0, 3) as event}
-							<div class="event-item">
-								<div class="event-time">{formatDateTime(event.time)}</div>
-								<div class="event-details">
-									<span class="device-badge">{event.device}</span>
-									<span class="metric">Temp: {event.temp}°C</span>
-									<span class="metric">Humid: {event.humid}%</span>
-								</div>
-								<div class="event-relative">{formatRelativeTime(event.time)}</div>
+			<div class="events-list">
+				{#if earthquakeEvents.length === 0}
+					<div class="no-events">No earthquake detections in the last 7 days</div>
+				{:else}
+					{#each showAllEarthquake ? earthquakeEvents : earthquakeEvents.slice(0, 3) as event}
+						<div class="event-item">
+							<div class="event-details">
+								<span class="intensity-badge {event.intensity.toLowerCase()}">{event.intensity}</span>
+								<span class="event-time">{formatDateTime(event.time)}</span>
 							</div>
-						{/each}
-						{#if severeEvents.length > 3}
-							<button class="show-more-btn" on:click={() => (showAllSevere = !showAllSevere)}>
-								{showAllSevere ? "Show Less" : `Show More (${severeEvents.length - 3} more)`}
-							</button>
-						{/if}
+							<div class="metric">RMS: {event.rms}g</div>
+							<div class="event-relative">{formatRelativeTime(event.time)}</div>
+						</div>
+					{/each}
+					{#if earthquakeEvents.length > 3}
+						<button class="show-more-btn" on:click={() => (showAllEarthquake = !showAllEarthquake)}>
+							{showAllEarthquake ? "Show Less" : `Show More (${earthquakeEvents.length - 3} more)`}
+						</button>
 					{/if}
-				</div>
-			</div>
-
-			<!-- Offline Devices -->
-			<div class="notification-section offline">
-				<div class="section-header">
-					<h2>
-						<svg class="icon" viewBox="0 0 24 24" fill="currentColor">
-							<path d="M19.35 10.04C18.67 6.59 15.64 4 12 4c-1.48 0-2.85.43-4.01 1.17l1.46 1.46C10.21 6.23 11.08 6 12 6c3.04 0 5.5 2.46 5.5 5.5v.5H19c1.66 0 3 1.34 3 3 0 1.13-.64 2.11-1.56 2.62l1.45 1.45C23.16 18.16 24 16.68 24 15c0-2.64-2.05-4.78-4.65-4.96zM3 5.27l2.75 2.74C2.56 8.15 0 10.77 0 14c0 3.31 2.69 6 6 6h11.73l2 2L21 20.73 4.27 4 3 5.27zM7.73 10l8 8H6c-2.21 0-4-1.79-4-4s1.79-4 4-4h1.73z" />
-						</svg>
-						Offline Devices
-					</h2>
-					<span class="count">{offlineDevices.length}</span>
-				</div>
-				<div class="events-list">
-					{#if offlineDevices.length === 0}
-						<div class="no-events">All devices are online</div>
-					{:else}
-						{#each showAllOffline ? offlineDevices : offlineDevices.slice(0, 3) as device}
-							<div class="event-item">
-								<div class="event-time">Last seen: {formatDateTime(device.lastSeen)}</div>
-								<div class="event-details">
-									<span class="device-badge">{device.device}</span>
-									<span class="metric offline-status">Offline</span>
-								</div>
-								<div class="last-data">
-									<span class="metric">Last Temp: {device.lastTemp}°C</span>
-									<span class="metric">Last Humid: {device.lastHumid}%</span>
-								</div>
-								<div class="event-relative">{formatRelativeTime(device.lastSeen)}</div>
-							</div>
-						{/each}
-						{#if offlineDevices.length > 3}
-							<button class="show-more-btn" on:click={() => (showAllOffline = !showAllOffline)}>
-								{showAllOffline ? "Show Less" : `Show More (${offlineDevices.length - 3} more)`}
-							</button>
-						{/if}
-					{/if}
-				</div>
+				{/if}
 			</div>
 		</div>
-	{/if}
-</main>
+
+		<!-- Severe Conditions -->
+		<div class="notification-section severe">
+			<div class="section-header">
+				<h2>
+					<svg class="icon" viewBox="0 0 24 24" fill="currentColor">
+						<path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z" />
+					</svg>
+					Severe Conditions
+				</h2>
+				<span class="count">{severeEvents.length}</span>
+			</div>
+			<div class="events-list">
+				{#if severeEvents.length === 0}
+					<div class="no-events">No severe conditions in the last 7 days</div>
+				{:else}
+					{#each showAllSevere ? severeEvents : severeEvents.slice(0, 3) as event}
+						<div class="event-item">
+							<div class="event-time">{formatDateTime(event.time)}</div>
+							<div class="event-details">
+								<span class="device-badge">{event.device}</span>
+								<span class="metric">Temp: {event.temp}°C</span>
+								<span class="metric">Humid: {event.humid}%</span>
+							</div>
+							<div class="event-relative">{formatRelativeTime(event.time)}</div>
+						</div>
+					{/each}
+					{#if severeEvents.length > 3}
+						<button class="show-more-btn" on:click={() => (showAllSevere = !showAllSevere)}>
+							{showAllSevere ? "Show Less" : `Show More (${severeEvents.length - 3} more)`}
+						</button>
+					{/if}
+				{/if}
+			</div>
+		</div>
+	</div>
+{/if}
 
 <style>
 	.page-header {

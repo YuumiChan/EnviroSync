@@ -51,7 +51,7 @@
 					const dbDate = new Date(timestampStr);
 					const now = new Date();
 					const minutesSinceLastUpdate = (now - dbDate) / 1000 / 60;
-					const isOffline = minutesSinceLastUpdate > 30;
+					const isOffline = minutesSinceLastUpdate > 5;
 
 					// Format time as 12-hour with AM/PM
 					// If offline, show date + time; otherwise just time
@@ -175,8 +175,12 @@
 		<div class="metric-header">
 			<span class="metric-label">Temperature</span>
 		</div>
-		<div class="metric-value temperature">{temperature}°C</div>
-		<div class="metric-average">Avg: {temperatureAvg}°C</div>
+		{#if status === "Offline"}
+			<div class="metric-value offline">Offline</div>
+		{:else}
+			<div class="metric-value temperature">{temperature}°C</div>
+			<div class="metric-average">Avg: {temperatureAvg}°C</div>
+		{/if}
 	</div>
 
 	<!-- Humidity Card -->
@@ -184,8 +188,12 @@
 		<div class="metric-header">
 			<span class="metric-label">Humidity</span>
 		</div>
-		<div class="metric-value humidity">{humidity}%</div>
-		<div class="metric-average">Avg: {humidityAvg}%</div>
+		{#if status === "Offline"}
+			<div class="metric-value offline">—</div>
+		{:else}
+			<div class="metric-value humidity">{humidity}%</div>
+			<div class="metric-average">Avg: {humidityAvg}%</div>
+		{/if}
 	</div>
 
 	<!-- Status Card -->
@@ -193,10 +201,10 @@
 		<div class="metric-header">
 			<span class="metric-label">Status</span>
 		</div>
-		<div class="metric-value status" class:warning={status === "Warning"} class:critical={status === "Severe"} class:offline={status === "Offline"}>
-			{loading ? "LOADING..." : status}
-		</div>
-		<div class="status-details">as of {lastUpdate}</div>
+		<div class="metric-value status-indicator {status.toLowerCase()}">{status}</div>
+		{#if status !== "Offline"}
+			<div class="metric-average">Last Update: {lastUpdate}</div>
+		{/if}
 	</div>
 </div>
 
@@ -242,11 +250,11 @@
 	}
 
 	.metric-value.temperature {
-		color: #ff6b47;
+		color: #ffffff;
 	}
 
 	.metric-value.humidity {
-		color: #4a90e2;
+		color: #ffffff;
 	}
 
 	.metric-value.status {
@@ -263,6 +271,27 @@
 	}
 
 	.metric-value.offline {
+		color: #757575;
+	}
+
+	.metric-value.status-indicator {
+		font-size: 1.6rem;
+		text-transform: capitalize;
+	}
+
+	.metric-value.status-indicator.normal {
+		color: #4caf50;
+	}
+
+	.metric-value.status-indicator.warning {
+		color: #ff9800;
+	}
+
+	.metric-value.status-indicator.severe {
+		color: #f44336;
+	}
+
+	.metric-value.status-indicator.offline {
 		color: #757575;
 	}
 

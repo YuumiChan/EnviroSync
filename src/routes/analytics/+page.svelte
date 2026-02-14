@@ -1,6 +1,5 @@
 <script>
 	import ConnectionStatus from "$lib/components/ConnectionStatus.svelte";
-	import Sidebar from "$lib/components/Sidebar.svelte";
 	import { getHiddenDeviceIds } from "$lib/deviceFilter.js";
 	import { getDeviceColumnName, getQuotedColumn, getTableName } from "$lib/questdbHelpers.js";
 	import html2canvas from "html2canvas";
@@ -229,150 +228,146 @@
 	});
 </script>
 
-<Sidebar />
-
-<main class="main-content">
-	<div class="dashboard-header">
-		<div>
-			<h1 class="dashboard-title">Analytics</h1>
-			<p class="dashboard-subtitle">Comprehensive data analysis across all devices</p>
-		</div>
-
-		<div class="user-info">
-			<ConnectionStatus />
-		</div>
+<div class="dashboard-header">
+	<div>
+		<h1 class="dashboard-title">Analytics</h1>
+		<p class="dashboard-subtitle">Comprehensive data analysis across all devices</p>
 	</div>
 
-	<div class="controls-section">
-		<div class="filter-group">
-			<label for="filter">Time Range:</label>
-			<select id="filter" bind:value={selectedFilter} on:change={handleFilterChange}>
-				{#each filterOptions as option}
-					<option value={option.value}>{option.label}</option>
-				{/each}
-			</select>
+	<div class="user-info">
+		<ConnectionStatus />
+	</div>
+</div>
 
-			{#if selectedFilter === "custom"}
-				<div class="custom-date-inputs">
-					<input type="datetime-local" bind:value={customStartDate} placeholder="Start Date" />
-					<span>to</span>
-					<input type="datetime-local" bind:value={customEndDate} placeholder="End Date" />
-					<button class="apply-btn" on:click={handleFilterChange}>Apply</button>
-				</div>
-			{/if}
-		</div>
+<div class="controls-section">
+	<div class="filter-group">
+		<label for="filter">Time Range:</label>
+		<select id="filter" bind:value={selectedFilter} on:change={handleFilterChange}>
+			{#each filterOptions as option}
+				<option value={option.value}>{option.label}</option>
+			{/each}
+		</select>
 
-		<div class="export-buttons">
-			<button class="export-btn" on:click={downloadPNG} disabled={loading || !analyticsData}>
-				<svg viewBox="0 0 24 24" fill="currentColor">
-					<path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z" />
-				</svg>
-				Download PNG
-			</button>
-			<button class="export-btn" on:click={downloadCSV} disabled={loading || !analyticsData}>
-				<svg viewBox="0 0 24 24" fill="currentColor">
-					<path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2z" />
-				</svg>
-				Download CSV
-			</button>
-		</div>
+		{#if selectedFilter === "custom"}
+			<div class="custom-date-inputs">
+				<input type="datetime-local" bind:value={customStartDate} placeholder="Start Date" />
+				<span>to</span>
+				<input type="datetime-local" bind:value={customEndDate} placeholder="End Date" />
+				<button class="apply-btn" on:click={handleFilterChange}>Apply</button>
+			</div>
+		{/if}
 	</div>
 
-	{#if loading}
-		<div class="loading-container">
-			<div class="spinner"></div>
-			<p>Loading analytics data...</p>
-		</div>
-	{:else if analyticsData && analyticsData.length > 0}
-		<div class="analytics-content" bind:this={summaryRef}>
-			<h2>Summary Statistics</h2>
+	<div class="export-buttons">
+		<button class="export-btn" on:click={downloadPNG} disabled={loading || !analyticsData}>
+			<svg viewBox="0 0 24 24" fill="currentColor">
+				<path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z" />
+			</svg>
+			Download PNG
+		</button>
+		<button class="export-btn" on:click={downloadCSV} disabled={loading || !analyticsData}>
+			<svg viewBox="0 0 24 24" fill="currentColor">
+				<path d="M19 12v7H5v-7H3v7c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2v-7h-2zm-6 .67l2.59-2.58L17 11.5l-5 5-5-5 1.41-1.41L11 12.67V3h2z" />
+			</svg>
+			Download CSV
+		</button>
+	</div>
+</div>
 
-			{#each analyticsData as device}
-				<div class="device-analytics-card">
-					<h3>{device.device}</h3>
+{#if loading}
+	<div class="loading-container">
+		<div class="spinner"></div>
+		<p>Loading analytics data...</p>
+	</div>
+{:else if analyticsData && analyticsData.length > 0}
+	<div class="analytics-content" bind:this={summaryRef}>
+		<h2>Summary Statistics</h2>
 
-					<div class="stats-grid">
-						<div class="stat-group">
-							<h4>Temperature (°C)</h4>
-							<div class="stat-row">
-								<span class="stat-label">Low:</span>
-								<span class="stat-value">{device.minTemp}</span>
-							</div>
-							<div class="stat-row">
-								<span class="stat-label">High:</span>
-								<span class="stat-value">{device.maxTemp}</span>
-							</div>
-							<div class="stat-row">
-								<span class="stat-label">Average:</span>
-								<span class="stat-value">{device.avgTemp}</span>
-							</div>
+		{#each analyticsData as device}
+			<div class="device-analytics-card">
+				<h3>{device.device}</h3>
+
+				<div class="stats-grid">
+					<div class="stat-group">
+						<h4>Temperature (°C)</h4>
+						<div class="stat-row">
+							<span class="stat-label">Low:</span>
+							<span class="stat-value">{device.minTemp}</span>
 						</div>
-
-						<div class="stat-group">
-							<h4>Humidity (%)</h4>
-							<div class="stat-row">
-								<span class="stat-label">Low:</span>
-								<span class="stat-value">{device.minHumid}</span>
-							</div>
-							<div class="stat-row">
-								<span class="stat-label">High:</span>
-								<span class="stat-value">{device.maxHumid}</span>
-							</div>
-							<div class="stat-row">
-								<span class="stat-label">Average:</span>
-								<span class="stat-value">{device.avgHumid}</span>
-							</div>
+						<div class="stat-row">
+							<span class="stat-label">High:</span>
+							<span class="stat-value">{device.maxTemp}</span>
 						</div>
-
-						<div class="stat-group">
-							<h4>Earthquake Detection</h4>
-							<div class="stat-row">
-								<span class="stat-label">Total Events:</span>
-								<span class="stat-value">{device.totalEarthquakes}</span>
-							</div>
-							<div class="stat-row">
-								<span class="stat-label">Strong:</span>
-								<span class="stat-value earthquake-strong">{device.strongCount}</span>
-							</div>
-							<div class="stat-row">
-								<span class="stat-label">Moderate:</span>
-								<span class="stat-value earthquake-moderate">{device.moderateCount}</span>
-							</div>
-							<div class="stat-row">
-								<span class="stat-label">Weak:</span>
-								<span class="stat-value earthquake-weak">{device.weakCount}</span>
-							</div>
-							<div class="stat-row">
-								<span class="stat-label">Max RMS:</span>
-								<span class="stat-value small">{device.maxRms}g</span>
-							</div>
+						<div class="stat-row">
+							<span class="stat-label">Average:</span>
+							<span class="stat-value">{device.avgTemp}</span>
 						</div>
+					</div>
 
-						<div class="stat-group">
-							<h4>Records</h4>
-							<div class="stat-row">
-								<span class="stat-label">Total:</span>
-								<span class="stat-value">{device.totalRecords.toLocaleString()}</span>
-							</div>
-							<div class="stat-row">
-								<span class="stat-label">First:</span>
-								<span class="stat-value small">{device.firstRecord}</span>
-							</div>
-							<div class="stat-row">
-								<span class="stat-label">Last:</span>
-								<span class="stat-value small">{device.lastRecord}</span>
-							</div>
+					<div class="stat-group">
+						<h4>Humidity (%)</h4>
+						<div class="stat-row">
+							<span class="stat-label">Low:</span>
+							<span class="stat-value">{device.minHumid}</span>
+						</div>
+						<div class="stat-row">
+							<span class="stat-label">High:</span>
+							<span class="stat-value">{device.maxHumid}</span>
+						</div>
+						<div class="stat-row">
+							<span class="stat-label">Average:</span>
+							<span class="stat-value">{device.avgHumid}</span>
+						</div>
+					</div>
+
+					<div class="stat-group">
+						<h4>Earthquake Detection</h4>
+						<div class="stat-row">
+							<span class="stat-label">Total Events:</span>
+							<span class="stat-value">{device.totalEarthquakes}</span>
+						</div>
+						<div class="stat-row">
+							<span class="stat-label">Strong:</span>
+							<span class="stat-value earthquake-strong">{device.strongCount}</span>
+						</div>
+						<div class="stat-row">
+							<span class="stat-label">Moderate:</span>
+							<span class="stat-value earthquake-moderate">{device.moderateCount}</span>
+						</div>
+						<div class="stat-row">
+							<span class="stat-label">Weak:</span>
+							<span class="stat-value earthquake-weak">{device.weakCount}</span>
+						</div>
+						<div class="stat-row">
+							<span class="stat-label">Max RMS:</span>
+							<span class="stat-value small">{device.maxRms}g</span>
+						</div>
+					</div>
+
+					<div class="stat-group">
+						<h4>Records</h4>
+						<div class="stat-row">
+							<span class="stat-label">Total:</span>
+							<span class="stat-value">{device.totalRecords.toLocaleString()}</span>
+						</div>
+						<div class="stat-row">
+							<span class="stat-label">First:</span>
+							<span class="stat-value small">{device.firstRecord}</span>
+						</div>
+						<div class="stat-row">
+							<span class="stat-label">Last:</span>
+							<span class="stat-value small">{device.lastRecord}</span>
 						</div>
 					</div>
 				</div>
-			{/each}
-		</div>
-	{:else}
-		<div class="no-data">
-			<p>No data available for the selected time range.</p>
-		</div>
-	{/if}
-</main>
+			</div>
+		{/each}
+	</div>
+{:else}
+	<div class="no-data">
+		<p>No data available for the selected time range.</p>
+	</div>
+{/if}
 
 <style>
 	.controls-section {
@@ -398,12 +393,17 @@
 
 	.filter-group select {
 		padding: 0.5rem 1rem;
-		background: rgba(0, 0, 0, 0.3);
+		background: #1e1e1e;
 		border: 1px solid rgba(74, 144, 226, 0.3);
 		color: #fff;
 		border-radius: 6px;
 		font-size: 1rem;
 		cursor: pointer;
+	}
+
+	.filter-group select option {
+		background: #1e1e1e;
+		color: #fff;
 	}
 
 	.filter-group select:focus {

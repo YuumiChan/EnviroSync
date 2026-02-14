@@ -1,10 +1,14 @@
 <script>
 	import { browser } from "$app/environment";
+	import { page } from "$app/stores";
 	import favicon from "$lib/assets/favicon.svg";
+	import Sidebar from "$lib/components/Sidebar.svelte";
 	import "../app.css";
 
 	// Svelte 5 syntax for children
 	let { children } = $props();
+
+	let isLoginPage = $derived($page.url.pathname === "/login");
 
 	if (browser) {
 		console.log("EnviroSync app initialized");
@@ -27,6 +31,13 @@
 	<link rel="icon" href={favicon} />
 </svelte:head>
 
-<div class="app-container">
+{#if isLoginPage}
 	{@render children()}
-</div>
+{:else}
+	<div class="app-container">
+		<Sidebar />
+		<main class="main-content">
+			{@render children()}
+		</main>
+	</div>
+{/if}

@@ -138,8 +138,7 @@
 		flex-direction: column;
 		gap: 1.5rem;
 		min-height: 200px;
-		max-height: 400px;
-		overflow-y: auto;
+		justify-content: center;
 	}
 
 	.device-header h3 {

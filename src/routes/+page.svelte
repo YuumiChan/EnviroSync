@@ -2,7 +2,6 @@
 	import ConnectionStatus from "$lib/components/ConnectionStatus.svelte";
 	import DeviceSelector from "$lib/components/DeviceSelector.svelte";
 	import MetricCards from "$lib/components/MetricCards.svelte";
-	import Sidebar from "$lib/components/Sidebar.svelte";
 	import TemperatureHumidityChart from "$lib/components/TemperatureHumidityChart.svelte";
 	import { onMount } from "svelte";
 
@@ -54,38 +53,33 @@
 	});
 </script>
 
-<Sidebar />
-
-<main class="main-content">
-	{#if !showDashboard}
-		<div class="dashboard-header">
-			<div>
-				<h1 class="dashboard-title">Dashboard Summary</h1>
-				<p class="dashboard-subtitle">Welcome, it's great to see you again.</p>
-			</div>
-
-			<div class="user-info">
-				<ConnectionStatus />
-			</div>
+{#if !showDashboard}
+	<div class="dashboard-header">
+		<div>
+			<h1 class="dashboard-title">Dashboard Summary</h1>
 		</div>
 
-		<DeviceSelector on:deviceSelected={handleDeviceSelection} />
-	{:else}
-		<div class="breadcrumb">
-			<button class="back-button" on:click={goBackToDeviceSelector}> ← Back to Devices </button>
+		<div class="user-info">
+			<ConnectionStatus />
+		</div>
+	</div>
+
+	<DeviceSelector on:deviceSelected={handleDeviceSelection} />
+{:else}
+	<div class="breadcrumb">
+		<button class="back-button" on:click={goBackToDeviceSelector}> ← Back to Devices </button>
+	</div>
+
+	<div class="dashboard-content">
+		<div class="chart-section">
+			<TemperatureHumidityChart {selectedDevice} />
 		</div>
 
-		<div class="dashboard-content">
-			<div class="chart-section">
-				<TemperatureHumidityChart {selectedDevice} />
-			</div>
-
-			<div class="metrics-section">
-				<MetricCards {selectedDevice} />
-			</div>
+		<div class="metrics-section">
+			<MetricCards {selectedDevice} />
 		</div>
-	{/if}
-</main>
+	</div>
+{/if}
 
 <style>
 	.breadcrumb {

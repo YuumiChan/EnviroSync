@@ -109,7 +109,7 @@
 
 						// Determine status using localStorage settings
 						let status = "Normal";
-						if (minutesSinceLastUpdate > 30) {
+						if (minutesSinceLastUpdate > 5) {
 							status = "Offline";
 						} else {
 							const t = parseFloat(temp);
@@ -232,17 +232,21 @@
 					</div>
 
 					<div class="device-metrics">
-						<div class="metric">
-							<div class="metric-value temperature">
-								{deviceData[deviceId]?.temperature || "??.??"}°C
+						{#if deviceData[deviceId]?.status === "Offline"}
+							<div class="offline-message">Offline</div>
+						{:else}
+							<div class="metric">
+								<div class="metric-value temperature">
+									{deviceData[deviceId]?.temperature || "??.??"}°C
+								</div>
 							</div>
-						</div>
 
-						<div class="metric">
-							<div class="metric-value humidity">
-								{deviceData[deviceId]?.humidity || "??.?"}%
+							<div class="metric">
+								<div class="metric-value humidity">
+									{deviceData[deviceId]?.humidity || "??.?"}%
+								</div>
 							</div>
-						</div>
+						{/if}
 					</div>
 				</button>
 			{/each}
@@ -389,11 +393,20 @@
 	}
 
 	.metric-value.temperature {
-		color: #ff6b47;
+		color: #ffffff;
 	}
 
 	.metric-value.humidity {
-		color: #4a90e2;
+		color: #ffffff;
+	}
+
+	.offline-message {
+		font-size: 2.4rem;
+		font-weight: 700;
+		letter-spacing: -0.02em;
+		color: #000000;
+		text-align: center;
+		width: 100%;
 	}
 
 	@media (max-width: 768px) {
