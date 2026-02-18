@@ -42,9 +42,9 @@ export async function GET({ url, setHeaders }) {
 
 		console.log("Server: QuestDB response:", data);
 
-		// Set cache headers for better performance
+		// Set cache headers - short TTL so earthquake data stays fresh
 		setHeaders({
-			"Cache-Control": "public, max-age=60, s-maxage=120", // Cache for 1-2 minutes
+			"Cache-Control": "public, max-age=3, s-maxage=5",
 			Vary: "Accept-Encoding",
 			"Content-Type": "application/json",
 		});

@@ -1,5 +1,6 @@
 <script>
 	import ConnectionStatus from "$lib/components/ConnectionStatus.svelte";
+	import { localNow } from "$lib/config.js";
 	import { getHiddenDeviceIds } from "$lib/deviceFilter.js";
 	import { getDeviceColumnName, getQuotedColumn, getTableName } from "$lib/questdbHelpers.js";
 	import html2canvas from "html2canvas";
@@ -36,7 +37,7 @@
 				const endDate = new Date(customEndDate).toISOString();
 				timeCondition = `AND ts BETWEEN '${startDate}' AND '${endDate}'`;
 			} else if (selectedFilter !== "all" && selectedOpt && selectedOpt.hours) {
-				timeCondition = `AND ts > dateadd('h', -${selectedOpt.hours}, now())`;
+				timeCondition = `AND ts > dateadd('h', -${selectedOpt.hours}, ${localNow()})`;
 			}
 
 			// Load earthquake thresholds from localStorage
@@ -184,7 +185,7 @@
 				const endDate = new Date(customEndDate).toISOString();
 				timeCondition = `AND ts BETWEEN '${startDate}' AND '${endDate}'`;
 			} else if (selectedFilter !== "all" && selectedOpt && selectedOpt.hours) {
-				timeCondition = `AND ts > dateadd('h', -${selectedOpt.hours}, now())`;
+				timeCondition = `AND ts > dateadd('h', -${selectedOpt.hours}, ${localNow()})`;
 			}
 
 			// Query for raw data

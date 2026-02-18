@@ -1,4 +1,6 @@
 <script>
+	import { localNow } from "$lib/config.js";
+	import { getHiddenDeviceIds } from "$lib/deviceFilter.js";
 	import { getDeviceColumnName, getQuotedColumn, getTableName } from "$lib/questdbHelpers.js";
 	import { onMount } from "svelte";
 
@@ -10,7 +12,33 @@
 	let showAllEarthquake = false;
 	let showAllSevere = false;
 
+	// Group consecutive time-buckets into distinct earthquake events.
+	// If the gap between two buckets exceeds gapMs a new event is started.
+	function groupIntoEvents(dataset, gapMs = 10 * 60 * 1000) {
+		if (!dataset || dataset.length === 0) return [];
+
+		const events = [];
+		let cur = null;
+
+		for (const row of dataset) {
+			const time = new Date(String(row[0]).replace("Z", ""));
+			const rms = parseFloat(row[1]);
+
+			if (!cur || time.getTime() - cur.end.getTime() > gapMs) {
+				if (cur) events.push(cur);
+				cur = { start: time, end: time, peakRms: rms };
+			} else {
+				cur.end = time;
+				cur.peakRms = Math.max(cur.peakRms, rms);
+			}
+		}
+		if (cur) events.push(cur);
+
+		return events;
+	}
+
 	async function fetchNotifications() {
+		console.log("Notifications: fetchNotifications called");
 		try {
 			// Don't set loading=true after initial load to preserve scroll position
 			const isInitialLoad = severeEvents.length === 0 && earthquakeEvents.length === 0;
@@ -20,6 +48,7 @@
 			const deviceColName = await getDeviceColumnName();
 			const deviceCol = getQuotedColumn(deviceColName);
 			const tableName = getTableName();
+			console.log("Notifications: tableName =", tableName, "deviceCol =", deviceCol);
 
 			// Load settings from localStorage for thresholds
 			const savedSettings = localStorage.getItem("enviroSyncSettings");
@@ -32,22 +61,23 @@
 						strongEarthquakeThreshold: 0.1,
 					};
 
-			// Fetch severe status events using dynamic thresholds
-			const severeQuery = `SELECT ts, ${deviceCol} as device, temp, humid FROM ${tableName} WHERE (temp > ${settings.tempSevere} OR humid > ${settings.humidSevere}) AND ts > dateadd('d', -7, now()) ORDER BY ts DESC LIMIT 50`;
+			// Exclude hidden devices (treat same as offline)
+			const hiddenIds = getHiddenDeviceIds();
+			const hiddenFilter = hiddenIds.length > 0 ? `AND ${deviceCol} NOT IN (${hiddenIds.map((id) => `'${id}'`).join(",")})` : "";
 
-			// Fetch earthquake detection events - showing peak RMS for each event
+			// Fetch severe status events using dynamic thresholds
+			const severeQuery = `SELECT ts, ${deviceCol} as device, temp, humid FROM ${tableName} WHERE (temp > ${settings.tempSevere} OR humid > ${settings.humidSevere}) ${hiddenFilter} AND ts > dateadd('d', -7, ${localNow()}) AND ts <= ${localNow()} ORDER BY ts DESC LIMIT 50`;
+
+			// Fetch earthquake events: simple query for all quake_flag = 2
 			const earthquakeQuery = `
-				SELECT 
-					FIRST(ts) as event_start,
-					${deviceCol} as device,
-					MAX(rms) as peak_rms
+				SELECT timestamp_floor('5m', ts) as bucket, MAX(rms) as peak_rms
 				FROM ${tableName}
-				WHERE quake_flag = 2 AND ts > dateadd('d', -7, now())
-				SAMPLE BY 5m ALIGN TO CALENDAR
-				ORDER BY event_start DESC
-				LIMIT 50
+				WHERE quake_flag = 2 AND ts > dateadd('d', -7, ${localNow()}) AND ts <= ${localNow()} ${hiddenFilter}
+				GROUP BY bucket
+				ORDER BY bucket ASC
 			`;
 
+			console.log("Notifications earthquake query:", earthquakeQuery);
 			const [severeResponse, earthquakeResponse] = await Promise.all([fetch(`/api/questdb?query=${encodeURIComponent(severeQuery)}`), fetch(`/api/questdb?query=${encodeURIComponent(earthquakeQuery)}`)]);
 
 			if (severeResponse.ok) {
@@ -69,23 +99,26 @@
 
 			if (earthquakeResponse.ok) {
 				const result = await earthquakeResponse.json();
+				console.log("Notifications earthquake result:", result);
 				if (result.dataset && result.dataset.length > 0) {
-					earthquakeEvents = result.dataset.map(([eventStart, device, peakRms]) => {
-						const timestampStr = eventStart.replace("Z", "");
-						const rmsValue = parseFloat(peakRms);
+					const events = groupIntoEvents(result.dataset);
 
+					// Sort most recent first
+					events.sort((a, b) => b.start.getTime() - a.start.getTime());
+
+					earthquakeEvents = events.map((event) => {
 						// Determine intensity based on peak RMS thresholds
 						let intensity = "Weak";
-						if (rmsValue >= settings.strongEarthquakeThreshold) {
+						if (event.peakRms >= settings.strongEarthquakeThreshold) {
 							intensity = "Strong";
-						} else if (rmsValue >= settings.weakEarthquakeThreshold) {
+						} else if (event.peakRms >= settings.weakEarthquakeThreshold) {
 							intensity = "Moderate";
 						}
 
 						return {
-							time: new Date(timestampStr),
-							device,
-							rms: rmsValue.toFixed(4),
+							time: event.start,
+							endTime: event.end,
+							rms: event.peakRms.toFixed(4),
 							intensity,
 						};
 					});
@@ -125,6 +158,7 @@
 	}
 
 	onMount(() => {
+		console.log("Notifications page mounted");
 		fetchNotifications();
 		// Refresh every 30 seconds
 		const interval = setInterval(fetchNotifications, 30000);
@@ -164,7 +198,7 @@
 								<span class="intensity-badge {event.intensity.toLowerCase()}">{event.intensity}</span>
 								<span class="event-time">{formatDateTime(event.time)}</span>
 							</div>
-							<div class="metric">RMS: {event.rms}g</div>
+							<div class="metric">Peak RMS: {event.rms}g</div>
 							<div class="event-relative">{formatRelativeTime(event.time)}</div>
 						</div>
 					{/each}

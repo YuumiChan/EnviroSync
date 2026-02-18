@@ -22,4 +22,16 @@ export const config = {
 		metricCards: 2000, // 2 seconds for metric cards
 		charts: 60000, // 60 seconds for charts
 	},
+
+	// Timezone offset in hours (UTC+8 for Philippines)
+	// DB timestamps are stored in local time but QuestDB now() is UTC
+	timezoneOffsetHours: 8,
 };
+
+/**
+ * Returns a SQL expression for "now" adjusted to match the local-time
+ * timestamps stored in QuestDB.  Use this instead of bare `now()`.
+ */
+export function localNow() {
+	return `dateadd('h', ${config.timezoneOffsetHours}, now())`;
+}

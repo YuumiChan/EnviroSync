@@ -1,4 +1,5 @@
 <script>
+	import { localNow } from "$lib/config.js";
 	import { getDeviceColumnName, getQuotedColumn, getTableName } from "$lib/questdbHelpers.js";
 	import { Chart, registerables } from "chart.js";
 	import "chartjs-adapter-date-fns";
@@ -29,8 +30,8 @@
 			// Calculate sample interval in minutes
 			const sampleInterval = Math.floor((hours * 60) / samplePoints);
 
-			// Query with SAMPLE BY to get exactly 31 points
-			const query = `SELECT ts, AVG(rms) as avg_rms FROM "${tableName}" WHERE ts > dateadd('h', -${hours}, now()) SAMPLE BY ${sampleInterval}m ALIGN TO CALENDAR`;
+			// Query with timestamp_floor to bucket data (table has no designated timestamp)
+			const query = `SELECT timestamp_floor('${sampleInterval}m', ts) as bucket, AVG(rms) as avg_rms FROM ${tableName} WHERE ts > dateadd('h', -${hours}, ${localNow()}) GROUP BY bucket ORDER BY bucket`;
 
 			const response = await fetch(`/api/questdb?query=${encodeURIComponent(query)}`);
 

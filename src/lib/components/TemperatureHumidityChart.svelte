@@ -1,4 +1,5 @@
 <script>
+	import { localNow } from "$lib/config.js";
 	import { getTableName } from "$lib/questdbHelpers.js";
 	import { Chart, registerables } from "chart.js";
 	import "chartjs-adapter-date-fns";
@@ -97,7 +98,7 @@
 			const sampleMinutes = Math.floor((totalHours * 60) / targetPoints);
 
 			// Use SAMPLE BY with FILL(linear) - always generates 31 points even with sparse data
-			const query = `SELECT ts, avg(temp) AS temp, avg(humid) AS humid FROM ${tableName} WHERE ${deviceCol}='${selectedDevice}' AND ts > dateadd('h', -${totalHours}, now()) SAMPLE BY ${sampleMinutes}m FILL(linear)`;
+			const query = `SELECT ts, avg(temp) AS temp, avg(humid) AS humid FROM ${tableName} WHERE ${deviceCol}='${selectedDevice}' AND ts > dateadd('h', -${totalHours}, ${localNow()}) SAMPLE BY ${sampleMinutes}m FILL(linear)`;
 
 			const url = `/api/questdb?query=${encodeURIComponent(query)}`;
 			console.log("Fetching fresh data with SAMPLE BY:", query);

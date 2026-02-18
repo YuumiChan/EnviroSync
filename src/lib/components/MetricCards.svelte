@@ -1,5 +1,5 @@
 <script>
-	import { config } from "$lib/config.js";
+	import { config, localNow } from "$lib/config.js";
 	import { getTableName } from "$lib/questdbHelpers.js";
 	import { onDestroy, onMount } from "svelte";
 
@@ -28,7 +28,7 @@
 			const currentQuery = `SELECT temp, humid, ts FROM ${tableName} WHERE ${deviceCol}='${selectedDevice}' ORDER BY ts DESC LIMIT 1`;
 
 			// Get averages for last 24 hours
-			const avgQuery = `SELECT AVG(temp) as temp_avg, AVG(humid) as humid_avg FROM ${tableName} WHERE ${deviceCol}='${selectedDevice}' AND ts > dateadd('h', -24, now())`;
+			const avgQuery = `SELECT AVG(temp) as temp_avg, AVG(humid) as humid_avg FROM ${tableName} WHERE ${deviceCol}='${selectedDevice}' AND ts > dateadd('h', -24, ${localNow()})`;
 
 			console.log("Fetching current and average data via proxy...");
 

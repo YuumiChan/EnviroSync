@@ -1,4 +1,6 @@
 <script>
+	import { localNow } from "$lib/config.js";
+	import { getHiddenDeviceIds } from "$lib/deviceFilter.js";
 	import { getDeviceColumnName, getQuotedColumn, getTableName } from "$lib/questdbHelpers.js";
 	import { createEventDispatcher, onDestroy, onMount } from "svelte";
 
@@ -7,98 +9,218 @@
 	let earthquakeDetections = [];
 	let loading = true;
 	let refreshInterval;
+	let historyInterval;
 	export let hasEarthquakes = false;
 
-	async function fetchEarthquakeDetections() {
+	// Cached column/table names so we don't re-probe every poll
+	let _deviceCol = null;
+	let _tableName = null;
+
+	async function resolveNames() {
+		if (!_tableName) {
+			_tableName = getTableName();
+			console.log("RmsCard: tableName =", _tableName);
+		}
+		if (!_deviceCol) {
+			const name = await getDeviceColumnName();
+			_deviceCol = getQuotedColumn(name);
+			console.log("RmsCard: deviceCol =", _deviceCol);
+		}
+		return { tableName: _tableName, deviceCol: _deviceCol };
+	}
+
+	function buildHiddenFilter(deviceCol) {
+		const hiddenIds = getHiddenDeviceIds();
+		return hiddenIds.length > 0 ? `AND ${deviceCol} NOT IN (${hiddenIds.map((id) => `'${id}'`).join(",")})` : "";
+	}
+
+	// ── Fast live check (runs every 3s) ──────────────────────────────
+	// Show earthquake when any device reports quake_flag = 2.
+	async function fetchLiveStatus() {
+		console.log("RmsCard: fetchLiveStatus called");
 		try {
-			const deviceColName = await getDeviceColumnName();
-			const deviceCol = getQuotedColumn(deviceColName);
-			const tableName = getTableName();
+			const { tableName, deviceCol } = await resolveNames();
+			const hiddenFilter = buildHiddenFilter(deviceCol);
+			console.log("RmsCard: hiddenFilter =", hiddenFilter);
 
-			// Load settings from localStorage
-			const savedSettings = localStorage.getItem("enviroSyncSettings");
-			const settings = savedSettings
-				? JSON.parse(savedSettings)
-				: {
-						weakEarthquakeThreshold: 0.01,
-						strongEarthquakeThreshold: 0.1,
-					};
-
-			// Get peak RMS values for each earthquake event (grouped by 5-minute windows)
-			// This shows the max/peak from start of seismic activity until it becomes normal
-			const query = `
-				SELECT 
-					${deviceCol} as device,
-					FIRST(ts) as event_start,
-					MAX(rms) as peak_rms
+			// Simple query: get any quake_flag=2 rows from the last 5 minutes
+			const quakeQuery = `
+				SELECT AVG(rms) as avg_rms, COUNT(*) as cnt
 				FROM ${tableName}
-				WHERE quake_flag = 2 AND ts > dateadd('h', -24, now())
-				SAMPLE BY 5m ALIGN TO CALENDAR
-				ORDER BY event_start DESC
+				WHERE quake_flag = 2 AND ts > dateadd('m', -5, ${localNow()}) AND ts <= ${localNow()} ${hiddenFilter}
 			`;
 
-			const response = await fetch(`/api/questdb?query=${encodeURIComponent(query)}`);
+			console.log("RmsCard live check query:", quakeQuery);
+			const res = await fetch(`/api/questdb?query=${encodeURIComponent(quakeQuery)}`);
+			if (!res.ok) {
+				console.error("RmsCard live check failed:", res.status);
+				return;
+			}
+			const result = await res.json();
+			console.log("RmsCard live check result:", result);
 
-			if (response.ok) {
-				const result = await response.json();
-				if (result.dataset && result.dataset.length > 0) {
-					hasEarthquakes = true;
-					// Process peak RMS values for each earthquake event
-					const detections = [];
+			if (!result.dataset || result.dataset.length === 0) {
+				console.log("RmsCard: No dataset in live check");
+				if (earthquakeDetections.length > 0 && earthquakeDetections[0].live) {
+					earthquakeDetections = earthquakeDetections.slice(1);
+					hasEarthquakes = earthquakeDetections.length > 0;
+				}
+				return;
+			}
 
-					result.dataset.forEach(([device, eventStart, peakRms]) => {
-						const timestampStr = eventStart.replace("Z", "");
-						const date = new Date(timestampStr);
-						const rmsValue = parseFloat(peakRms);
+			const [avgRms, cnt] = result.dataset[0];
+			const hasQuake = cnt !== null && parseInt(cnt) > 0 && avgRms !== null;
+			console.log("RmsCard: hasQuake=", hasQuake, "cnt=", cnt, "avgRms=", avgRms);
 
-						// Determine intensity based on peak RMS thresholds
-						let intensity = "Weak";
-						if (rmsValue >= settings.strongEarthquakeThreshold) {
-							intensity = "Strong";
-						} else if (rmsValue >= settings.weakEarthquakeThreshold) {
-							intensity = "Moderate";
-						}
+			if (hasQuake) {
+				const rmsValue = parseFloat(avgRms);
+				const settings = getSettings();
+				let intensity = "Weak";
+				if (rmsValue >= settings.strongEarthquakeThreshold) intensity = "Strong";
+				else if (rmsValue >= settings.weakEarthquakeThreshold) intensity = "Moderate";
+				else if (rmsValue >= settings.weakEarthquakeThreshold) intensity = "Moderate";
 
-						detections.push({
-							device,
-							timestamp: date,
-							rms: rmsValue,
-							intensity,
-							formattedTime: date.toLocaleString("en-US", {
-								month: "short",
-								day: "numeric",
-								hour: "numeric",
-								minute: "2-digit",
-								hour12: true,
-							}),
-						});
-					});
+				hasEarthquakes = true;
+				const liveEvent = {
+					timestamp: new Date(),
+					rms: rmsValue,
+					intensity,
+					formattedTime: new Date().toLocaleString("en-US", {
+						month: "short",
+						day: "numeric",
+						hour: "numeric",
+						minute: "2-digit",
+						hour12: true,
+					}),
+					live: true,
+				};
 
-					earthquakeDetections = detections;
+				if (earthquakeDetections.length > 0 && earthquakeDetections[0].live) {
+					earthquakeDetections[0] = liveEvent;
+					earthquakeDetections = earthquakeDetections;
 				} else {
-					hasEarthquakes = false;
-					earthquakeDetections = [];
+					earthquakeDetections = [liveEvent, ...earthquakeDetections];
+				}
+			} else {
+				if (earthquakeDetections.length > 0 && earthquakeDetections[0].live) {
+					earthquakeDetections = earthquakeDetections.slice(1);
+					hasEarthquakes = earthquakeDetections.length > 0;
 				}
 			}
 		} catch (error) {
-			console.error("Error fetching earthquake detections:", error);
-			hasEarthquakes = false;
-			earthquakeDetections = [];
+			console.error("Error in live earthquake check:", error);
+		}
+	}
+
+	// ── Historical scan (runs every 30s) ─────────────────────────────
+	// Only confirmed events (quake_flag = 2) so RMS reflects real seismic data.
+	function groupIntoEvents(dataset, gapMs = 10 * 60 * 1000) {
+		if (!dataset || dataset.length === 0) return [];
+		const events = [];
+		let cur = null;
+
+		for (const row of dataset) {
+			const time = new Date(String(row[0]).replace("Z", ""));
+			const rms = parseFloat(row[1]);
+
+			if (!cur || time.getTime() - cur.end.getTime() > gapMs) {
+				if (cur) events.push(cur);
+				cur = { start: time, end: time, peakRms: rms };
+			} else {
+				cur.end = time;
+				cur.peakRms = Math.max(cur.peakRms, rms);
+			}
+		}
+		if (cur) events.push(cur);
+		return events;
+	}
+
+	async function fetchHistoricalEvents() {
+		console.log("RmsCard: fetchHistoricalEvents called");
+		try {
+			const { tableName, deviceCol } = await resolveNames();
+			const hiddenFilter = buildHiddenFilter(deviceCol);
+			const settings = getSettings();
+			console.log("RmsCard: settings =", settings);
+
+			// Simple query: get all 5-min buckets with quake_flag = 2
+			const query = `
+				SELECT timestamp_floor('5m', ts) as bucket, MAX(rms) as peak_rms
+				FROM ${tableName}
+				WHERE quake_flag = 2 AND ts > dateadd('h', -24, ${localNow()}) AND ts <= ${localNow()} ${hiddenFilter}
+				GROUP BY bucket
+				ORDER BY bucket ASC
+			`;
+
+			console.log("RmsCard historical query:", query);
+			const response = await fetch(`/api/questdb?query=${encodeURIComponent(query)}`);
+			if (!response.ok) {
+				console.error("RmsCard historical failed:", response.status);
+				return;
+			}
+
+			const result = await response.json();
+			console.log("RmsCard historical result:", result);
+			const filteredDataset = result.dataset ? result.dataset : [];
+
+			if (filteredDataset.length > 0) {
+				const events = groupIntoEvents(filteredDataset);
+				events.sort((a, b) => b.start.getTime() - a.start.getTime());
+
+				const mapped = events.map((event) => {
+					let intensity = "Weak";
+					if (event.peakRms >= settings.strongEarthquakeThreshold) intensity = "Strong";
+					else if (event.peakRms >= settings.weakEarthquakeThreshold) intensity = "Moderate";
+					return {
+						timestamp: event.start,
+						rms: event.peakRms,
+						intensity,
+						formattedTime: event.start.toLocaleString("en-US", {
+							month: "short",
+							day: "numeric",
+							hour: "numeric",
+							minute: "2-digit",
+							hour12: true,
+						}),
+						live: false,
+					};
+				});
+
+				const liveEntry = earthquakeDetections.length > 0 && earthquakeDetections[0].live ? earthquakeDetections[0] : null;
+				earthquakeDetections = liveEntry ? [liveEntry, ...mapped] : mapped;
+				hasEarthquakes = earthquakeDetections.length > 0;
+			} else {
+				const liveEntry = earthquakeDetections.length > 0 && earthquakeDetections[0].live ? earthquakeDetections[0] : null;
+				earthquakeDetections = liveEntry ? [liveEntry] : [];
+				hasEarthquakes = earthquakeDetections.length > 0;
+			}
+		} catch (error) {
+			console.error("Error fetching historical earthquake events:", error);
 		} finally {
 			loading = false;
 		}
 	}
 
+	function getSettings() {
+		const savedSettings = localStorage.getItem("enviroSyncSettings");
+		return savedSettings ? JSON.parse(savedSettings) : { weakEarthquakeThreshold: 0.01, strongEarthquakeThreshold: 0.1 };
+	}
+
 	onMount(() => {
-		fetchEarthquakeDetections();
-		// Refresh every 3 seconds
-		refreshInterval = setInterval(fetchEarthquakeDetections, 3000);
+		console.log("RmsCard mounted - starting earthquake detection");
+		// Initial load: fast live check + full history
+		fetchLiveStatus();
+		fetchHistoricalEvents();
+
+		// Fast poll: lightweight live status every 3 seconds
+		refreshInterval = setInterval(fetchLiveStatus, 3000);
+		// Slow poll: full 24h history scan every 30 seconds
+		historyInterval = setInterval(fetchHistoricalEvents, 30000);
 	});
 
 	onDestroy(() => {
-		if (refreshInterval) {
-			clearInterval(refreshInterval);
-		}
+		if (refreshInterval) clearInterval(refreshInterval);
+		if (historyInterval) clearInterval(historyInterval);
 	});
 </script>
 

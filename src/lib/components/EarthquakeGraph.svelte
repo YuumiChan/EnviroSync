@@ -1,4 +1,6 @@
 <script>
+	import { localNow } from "$lib/config.js";
+	import { getHiddenDeviceIds } from "$lib/deviceFilter.js";
 	import { getDeviceColumnName, getQuotedColumn, getTableName } from "$lib/questdbHelpers.js";
 	import { Chart, registerables } from "chart.js";
 	import "chartjs-adapter-date-fns";
@@ -19,18 +21,16 @@
 			const deviceCol = getQuotedColumn(deviceColName);
 			const tableName = getTableName();
 
-			// Get RMS data from all devices for last 24 hours where quake_flag = 2
-			// Use UNION to combine sampled historical data with the absolute latest point
+			// Exclude hidden devices (treat same as offline)
+			const hiddenIds = getHiddenDeviceIds();
+			const hiddenFilter = hiddenIds.length > 0 ? `AND ${deviceCol} NOT IN (${hiddenIds.map((id) => `'${id}'`).join(",")})` : "";
+
+			// Get RMS data from visible devices for last 24 hours during seismic activity
+			// quake_flag >= 1 captures the full event window (start to end)
 			const query = `
 				SELECT ts, ${deviceCol} as device, rms 
 				FROM ${tableName} 
-				WHERE quake_flag = 2 AND ts > dateadd('h', -24, now()) 
-				AND ts < (SELECT MAX(ts) FROM ${tableName} WHERE quake_flag = 2)
-				UNION ALL
-				SELECT ts, ${deviceCol} as device, rms 
-				FROM ${tableName} 
-				WHERE quake_flag = 2 
-				AND ts = (SELECT MAX(ts) FROM ${tableName} WHERE quake_flag = 2)
+				WHERE quake_flag >= 1 AND ts > dateadd('h', -24, ${localNow()}) AND ts <= ${localNow()} ${hiddenFilter}
 				ORDER BY ts ASC
 			`;
 
