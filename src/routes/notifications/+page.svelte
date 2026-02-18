@@ -21,6 +21,8 @@
 		let cur = null;
 
 		for (const row of dataset) {
+			// DB timestamps are stored as local time; strip trailing Z so the browser
+			// does not re-interpret them as UTC and shift them again.
 			const time = new Date(String(row[0]).replace("Z", ""));
 			const rms = parseFloat(row[1]);
 
@@ -84,7 +86,8 @@
 				const result = await severeResponse.json();
 				if (result.dataset && result.dataset.length > 0) {
 					severeEvents = result.dataset.map(([ts, device, temp, humid]) => {
-						const timestampStr = ts.replace("Z", "");
+						// Strip Z so local-time DB timestamp isn't shifted to UTC by the browser
+						const timestampStr = String(ts).replace("Z", "");
 						return {
 							time: new Date(timestampStr),
 							device,

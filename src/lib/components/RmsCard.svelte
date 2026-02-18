@@ -43,9 +43,9 @@
 			const hiddenFilter = buildHiddenFilter(deviceCol);
 			console.log("RmsCard: hiddenFilter =", hiddenFilter);
 
-			// Simple query: get any quake_flag=2 rows from the last 5 minutes
+			// Simple query: get most recent quake_flag=2 row with its actual timestamp
 			const quakeQuery = `
-				SELECT AVG(rms) as avg_rms, COUNT(*) as cnt
+				SELECT MAX(ts) as latest_ts, AVG(rms) as avg_rms, COUNT(*) as cnt
 				FROM ${tableName}
 				WHERE quake_flag = 2 AND ts > dateadd('m', -5, ${localNow()}) AND ts <= ${localNow()} ${hiddenFilter}
 			`;
@@ -68,9 +68,9 @@
 				return;
 			}
 
-			const [avgRms, cnt] = result.dataset[0];
+			const [dbTs, avgRms, cnt] = result.dataset[0];
 			const hasQuake = cnt !== null && parseInt(cnt) > 0 && avgRms !== null;
-			console.log("RmsCard: hasQuake=", hasQuake, "cnt=", cnt, "avgRms=", avgRms);
+			console.log("RmsCard: hasQuake=", hasQuake, "cnt=", cnt, "avgRms=", avgRms, "ts=", dbTs);
 
 			if (hasQuake) {
 				const rmsValue = parseFloat(avgRms);
@@ -78,14 +78,15 @@
 				let intensity = "Weak";
 				if (rmsValue >= settings.strongEarthquakeThreshold) intensity = "Strong";
 				else if (rmsValue >= settings.weakEarthquakeThreshold) intensity = "Moderate";
-				else if (rmsValue >= settings.weakEarthquakeThreshold) intensity = "Moderate";
 
+				// Use the actual DB timestamp (stored as local time, strip Z to avoid UTC re-interpretation)
+				const eventTime = new Date(String(dbTs).replace("Z", ""));
 				hasEarthquakes = true;
 				const liveEvent = {
-					timestamp: new Date(),
+					timestamp: eventTime,
 					rms: rmsValue,
 					intensity,
-					formattedTime: new Date().toLocaleString("en-US", {
+					formattedTime: eventTime.toLocaleString("en-US", {
 						month: "short",
 						day: "numeric",
 						hour: "numeric",
@@ -120,6 +121,8 @@
 		let cur = null;
 
 		for (const row of dataset) {
+			// DB timestamps are stored as local time; strip trailing Z so the browser
+			// does not re-interpret them as UTC and shift them again.
 			const time = new Date(String(row[0]).replace("Z", ""));
 			const rms = parseFloat(row[1]);
 
