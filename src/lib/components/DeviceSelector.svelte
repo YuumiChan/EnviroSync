@@ -2,7 +2,6 @@
 	import { filterVisibleDevices } from "$lib/deviceFilter.js";
 	import { getDeviceColumnName, getQuotedColumn, getTableName } from "$lib/questdbHelpers.js";
 	import { createEventDispatcher, onMount } from "svelte";
-	import RmsCard from "./RmsCard.svelte";
 
 	const dispatch = createEventDispatcher();
 
@@ -222,9 +221,6 @@
 		</div>
 	{:else}
 		<div class="devices-grid">
-			<div class="rms-card-wrapper">
-				<RmsCard on:showEarthquakeGraph />
-			</div>
 			{#each devices as deviceId}
 				<button class="device-card" class:stale-data={isDeviceDataStale(deviceId)} style="background-color: {getStatusColor(deviceData[deviceId]?.status || 'Normal')};" on:click={() => selectDevice(deviceId)}>
 					<div class="device-header">
@@ -314,14 +310,6 @@
 		grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
 		gap: 2rem;
 		margin-top: 2rem;
-	}
-
-	.rms-card-wrapper {
-		display: block;
-	}
-
-	.rms-card-wrapper.hidden {
-		display: none;
 	}
 
 	.device-card {

@@ -16,6 +16,7 @@
 	let rmsEarthquakeThreshold = 0.05;
 	let weakEarthquakeThreshold = 0.01; // RMS for weak earthquake (Magnitude ~2.1)
 	let strongEarthquakeThreshold = 0.1; // RMS for strong earthquake (Magnitude ~4.4)
+	let alwaysShowToast = false;
 
 	let saveSuccess = false;
 	let saveError = "";
@@ -92,6 +93,7 @@
 				rmsEarthquakeThreshold = settings.rmsEarthquakeThreshold ?? 0.05;
 				weakEarthquakeThreshold = settings.weakEarthquakeThreshold ?? 0.01;
 				strongEarthquakeThreshold = settings.strongEarthquakeThreshold ?? 0.1;
+				alwaysShowToast = settings.alwaysShowToast ?? false;
 			} catch (err) {
 				console.error("Error loading settings:", err);
 			}
@@ -248,6 +250,7 @@
 				rmsEarthquakeThreshold,
 				weakEarthquakeThreshold,
 				strongEarthquakeThreshold,
+				alwaysShowToast,
 			};
 
 			localStorage.setItem("enviroSyncSettings", JSON.stringify(settings));
@@ -275,6 +278,7 @@
 		rmsEarthquakeThreshold = 0.05;
 		weakEarthquakeThreshold = 0.01;
 		strongEarthquakeThreshold = 0.1;
+		alwaysShowToast = false;
 	}
 </script>
 
@@ -391,6 +395,17 @@
 				</div>
 			</div>
 			<p style="margin-top: 0.75rem; font-size: 0.9rem;"><strong>Note:</strong> Earthquakes below weak threshold are minor vibrations, between weak and strong are moderate, and above strong are significant seismic events.</p>
+		</div>
+
+		<div class="toggle-setting">
+			<div class="toggle-info">
+				<label for="alwaysShowToast">Always Show Seismic Status</label>
+				<small>When enabled, the sidebar always shows the seismic toast even when status is normal</small>
+			</div>
+			<label class="toggle-switch">
+				<input type="checkbox" id="alwaysShowToast" bind:checked={alwaysShowToast} />
+				<span class="toggle-slider"></span>
+			</label>
 		</div>
 	</div>
 
@@ -1091,5 +1106,82 @@
 		.change-password-inline {
 			flex-wrap: wrap;
 		}
+	}
+
+	/* Toggle switch */
+	.toggle-setting {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 1rem;
+		margin-top: 1rem;
+		background: rgba(255, 255, 255, 0.03);
+		border: 1px solid rgba(255, 255, 255, 0.1);
+		border-radius: 8px;
+		gap: 1rem;
+	}
+
+	.toggle-info {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
+	.toggle-info label {
+		color: #fff;
+		font-weight: 500;
+		font-size: 0.95rem;
+		cursor: pointer;
+	}
+
+	.toggle-info small {
+		color: #666;
+		font-size: 0.85rem;
+	}
+
+	.toggle-switch {
+		position: relative;
+		display: inline-block;
+		width: 48px;
+		height: 26px;
+		flex-shrink: 0;
+	}
+
+	.toggle-switch input {
+		opacity: 0;
+		width: 0;
+		height: 0;
+	}
+
+	.toggle-slider {
+		position: absolute;
+		cursor: pointer;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(255, 255, 255, 0.15);
+		transition: 0.3s;
+		border-radius: 26px;
+	}
+
+	.toggle-slider:before {
+		position: absolute;
+		content: "";
+		height: 20px;
+		width: 20px;
+		left: 3px;
+		bottom: 3px;
+		background: #fff;
+		transition: 0.3s;
+		border-radius: 50%;
+	}
+
+	.toggle-switch input:checked + .toggle-slider {
+		background: #4a90e2;
+	}
+
+	.toggle-switch input:checked + .toggle-slider:before {
+		transform: translateX(22px);
 	}
 </style>

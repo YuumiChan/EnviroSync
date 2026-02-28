@@ -25,6 +25,8 @@
 			// does not re-interpret them as UTC and shift them again.
 			const time = new Date(String(row[0]).replace("Z", ""));
 			const rms = parseFloat(row[1]);
+			// Skip rows with invalid rms to avoid NaN poisoning the event's peakRms
+			if (isNaN(rms)) continue;
 
 			if (!cur || time.getTime() - cur.end.getTime() > gapMs) {
 				if (cur) events.push(cur);
@@ -68,13 +70,13 @@
 			const hiddenFilter = hiddenIds.length > 0 ? `AND ${deviceCol} NOT IN (${hiddenIds.map((id) => `'${id}'`).join(",")})` : "";
 
 			// Fetch severe status events using dynamic thresholds
-			const severeQuery = `SELECT ts, ${deviceCol} as device, temp, humid FROM ${tableName} WHERE (temp > ${settings.tempSevere} OR humid > ${settings.humidSevere}) ${hiddenFilter} AND ts > dateadd('d', -7, ${localNow()}) AND ts <= ${localNow()} ORDER BY ts DESC LIMIT 50`;
+			const severeQuery = `SELECT ts, ${deviceCol} as device, temp, humid FROM ${tableName} WHERE (temp > ${settings.tempSevere} OR humid > ${settings.humidSevere}) ${hiddenFilter} AND ts > dateadd('d', -7, ${localNow()}) ORDER BY ts DESC LIMIT 50`;
 
 			// Fetch earthquake events: simple query for all quake_flag = 2
 			const earthquakeQuery = `
 				SELECT timestamp_floor('5m', ts) as bucket, MAX(rms) as peak_rms
 				FROM ${tableName}
-				WHERE quake_flag = 2 AND ts > dateadd('d', -7, ${localNow()}) AND ts <= ${localNow()} ${hiddenFilter}
+				WHERE quake_flag = 2 AND rms IS NOT NULL AND ts > dateadd('d', -7, ${localNow()}) ${hiddenFilter}
 				GROUP BY bucket
 				ORDER BY bucket ASC
 			`;

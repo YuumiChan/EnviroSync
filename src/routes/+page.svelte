@@ -7,11 +7,11 @@
 
 	let selectedDevice = null;
 	let showDashboard = false;
+	let rmsMode = false;
 
 	function handleDeviceSelection(event) {
 		selectedDevice = event.detail.deviceId;
 		showDashboard = true;
-		console.log("Selected device:", selectedDevice);
 
 		// Push state to browser history
 		history.pushState({ device: selectedDevice }, "", `?device=${encodeURIComponent(selectedDevice)}`);
@@ -20,6 +20,7 @@
 	function goBackToDeviceSelector() {
 		showDashboard = false;
 		selectedDevice = null;
+		rmsMode = false;
 
 		// Update URL without device parameter
 		history.pushState({}, "", window.location.pathname);
@@ -32,7 +33,12 @@
 		} else {
 			showDashboard = false;
 			selectedDevice = null;
+			rmsMode = false;
 		}
+	}
+
+	function handleRmsModeChange(event) {
+		rmsMode = event.detail.rmsMode;
 	}
 
 	onMount(() => {
@@ -66,43 +72,18 @@
 
 	<DeviceSelector on:deviceSelected={handleDeviceSelection} />
 {:else}
-	<div class="breadcrumb">
-		<button class="back-button" on:click={goBackToDeviceSelector}> ← Back to Devices </button>
-	</div>
-
 	<div class="dashboard-content">
 		<div class="chart-section">
-			<TemperatureHumidityChart {selectedDevice} />
+			<TemperatureHumidityChart {selectedDevice} {rmsMode} onBackToDevices={goBackToDeviceSelector} />
 		</div>
 
 		<div class="metrics-section">
-			<MetricCards {selectedDevice} />
+			<MetricCards {selectedDevice} on:rmsModeChange={handleRmsModeChange} />
 		</div>
 	</div>
 {/if}
 
 <style>
-	.breadcrumb {
-		margin-bottom: 1.5rem;
-	}
-
-	.back-button {
-		background: none;
-		border: 1px solid #404040;
-		color: #888;
-		padding: 0.5rem 1rem;
-		border-radius: 6px;
-		cursor: pointer;
-		font-size: 0.9rem;
-		transition: all 0.2s ease;
-	}
-
-	.back-button:hover {
-		border-color: #4a90e2;
-		color: #4a90e2;
-		background: rgba(74, 144, 226, 0.1);
-	}
-
 	.dashboard-content {
 		display: flex;
 		flex-direction: column;

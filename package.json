@@ -27,6 +27,7 @@
 		"chartjs-adapter-date-fns": "^3.0.0",
 		"chartjs-plugin-annotation": "^3.1.0",
 		"date-fns": "^4.1.0",
-		"html2canvas": "^1.4.1"
+		"html2canvas": "^1.4.1",
+		"xlsx": "^0.18.5"
 	}
 }
