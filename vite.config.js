@@ -25,9 +25,12 @@ export default defineConfig({
 		headers: {
 			"Cache-Control": "public, max-age=3600",
 		},
-		// Fix WebSocket/HMR issues - let Vite choose the port automatically
-		hmr: true,
-		// Force the server to use the correct host
-		host: "localhost",
+		// Allow network access (used with --host flag)
+		host: true,
+		// Fix HMR WebSocket so it works when accessed via network IP
+		// The client will use the same host it loaded the page from
+		hmr: {
+			clientPort: 5173,
+		},
 	},
 });

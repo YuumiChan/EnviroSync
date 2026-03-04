@@ -25,10 +25,12 @@ export async function POST({ request, cookies }) {
 		const sessionId = createSession(user.id);
 
 		// Set session cookie (7 days)
+		// secure: false is required for HTTP (dev/LAN access without HTTPS)
 		cookies.set("session", sessionId, {
 			path: "/",
 			httpOnly: true,
 			sameSite: "lax",
+			secure: false,
 			maxAge: 7 * 24 * 60 * 60, // 7 days in seconds
 		});
 
