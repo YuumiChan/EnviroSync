@@ -220,22 +220,20 @@
 		<!-- Magnitude mode: Latest magnitude value and status (clickable to revert) -->
 		<div class="metric-card">
 			<div class="metric-header">
-				<span class="metric-label">{$magnitudeMode ? 'Magnitude' : 'RMS'}</span>
+				<span class="metric-label">{$magnitudeMode ? "Magnitude" : "RMS"}</span>
 			</div>
 			{#if status === "Offline"}
 				<div class="metric-value offline">Offline</div>
+			{:else if $magnitudeMode}
+				<div class="metric-value rms">{rmsToMagnitude(parseFloat(latestRms)).toFixed(1)} Mag</div>
 			{:else}
-				{#if $magnitudeMode}
-					<div class="metric-value rms">{rmsToMagnitude(parseFloat(latestRms)).toFixed(1)} Mag</div>
-				{:else}
-					<div class="metric-value rms">{latestRms}g</div>
-				{/if}
+				<div class="metric-value rms">{latestRms}g</div>
 			{/if}
 		</div>
 
 		<button class="metric-card clickable" on:click={toggleRmsMode}>
 			<div class="metric-header">
-				<span class="metric-label">{$magnitudeMode ? 'Magnitude' : 'RMS'} Status</span>
+				<span class="metric-label">{$magnitudeMode ? "Magnitude" : "RMS"} Status</span>
 			</div>
 			<div class="metric-value status-indicator {rmsStatus.toLowerCase()}">{rmsStatus}</div>
 			<div class="metric-hint">Click to go back</div>

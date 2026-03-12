@@ -122,9 +122,7 @@
 		const useMag = $magnitudeMode;
 
 		if (rmsMode) {
-			const rmsValues = useMag
-				? environmentalData.map((d) => d.rms !== null ? rmsToMagnitude(d.rms) : null)
-				: environmentalData.map((d) => d.rms);
+			const rmsValues = useMag ? environmentalData.map((d) => (d.rms !== null ? rmsToMagnitude(d.rms) : null)) : environmentalData.map((d) => d.rms);
 			const label = useMag ? "Magnitude" : "RMS (g)";
 			return {
 				labels: timestamps,
@@ -253,7 +251,9 @@
 		updateTimeout = setTimeout(() => {
 			updateChart();
 			if (refreshInterval) clearInterval(refreshInterval);
-			refreshInterval = setInterval(() => { updateChart(); }, 60000);
+			refreshInterval = setInterval(() => {
+				updateChart();
+			}, 60000);
 		}, 300);
 	}
 
