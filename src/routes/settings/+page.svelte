@@ -1,7 +1,9 @@
 <script>
 	import { goto } from "$app/navigation";
 	import { getHiddenDeviceIds, setHiddenDeviceIds } from "$lib/deviceFilter.js";
+	import { magnitudeToRms, rmsToMagTable, rmsToMagnitude } from "$lib/magnitude.js";
 	import { getDeviceColumnName, getQuotedColumn, getTableName } from "$lib/questdbHelpers.js";
+	import { darkMode, magnitudeMode as magnitudeModeStore } from "$lib/stores.js";
 	import { onMount } from "svelte";
 
 	// Default thresholds
@@ -14,12 +16,32 @@
 	let humidSevere = 90;
 
 	let rmsEarthquakeThreshold = 0.05;
-	let weakEarthquakeThreshold = 0.01; // RMS for weak earthquake (Magnitude ~2.1)
-	let strongEarthquakeThreshold = 0.1; // RMS for strong earthquake (Magnitude ~4.4)
+	let weakEarthquakeThreshold = 0.01;
+	let strongEarthquakeThreshold = 0.1;
 	let alwaysShowToast = false;
 
 	let saveSuccess = false;
 	let saveError = "";
+
+	// Magnitude conversion toggle
+	let magnitudeMode = false;
+
+	// Dark mode toggle
+	let darkModeEnabled = false;
+
+	// Computed magnitude values
+	$: generalMag = rmsToMagnitude(rmsEarthquakeThreshold).toFixed(1);
+	$: weakMag = rmsToMagnitude(weakEarthquakeThreshold).toFixed(1);
+	$: strongMag = rmsToMagnitude(strongEarthquakeThreshold).toFixed(1);
+
+	function handleMagInput(field, event) {
+		const mag = parseFloat(event.target.value);
+		if (isNaN(mag)) return;
+		const rms = magnitudeToRms(mag);
+		if (field === "general") rmsEarthquakeThreshold = parseFloat(rms.toFixed(4));
+		else if (field === "weak") weakEarthquakeThreshold = parseFloat(rms.toFixed(4));
+		else if (field === "strong") strongEarthquakeThreshold = parseFloat(rms.toFixed(4));
+	}
 
 	// Device visibility
 	let allDevices = [];
@@ -37,6 +59,22 @@
 	let changingPasswordForUser = null;
 	let newPasswordForChange = "";
 	let confirmDeleteUser = null;
+
+	// Database configuration
+	let dbConfigOpen = false;
+	let dbOperationLoading = false;
+	let dbOperationSuccess = "";
+	let dbOperationError = "";
+
+	// Confirmation dialogs
+	let showDeleteDeviceDialog = false;
+	let deleteDeviceTarget = null;
+	let showResetEarthquakeDialog = false;
+	let showResetSevereDialog = false;
+	let showResetDatabaseDialog = false;
+	let resetDatabaseConfirmText = "";
+
+	$: resetDatabaseConfirmValid = resetDatabaseConfirmText === "YES I UNDERSTAND";
 
 	async function fetchAllDevices() {
 		try {
@@ -60,7 +98,7 @@
 		}
 	}
 
-	function toggleDeviceVisibility(deviceId) {
+	async function toggleDeviceVisibility(deviceId) {
 		animatingDeviceId = deviceId;
 		const index = hiddenDevices.indexOf(deviceId);
 		if (index === -1) {
@@ -69,6 +107,18 @@
 			hiddenDevices = hiddenDevices.filter((id) => id !== deviceId);
 		}
 		setHiddenDeviceIds(hiddenDevices);
+
+		// Persist to server
+		try {
+			await fetch("/api/device-visibility", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ hiddenDevices }),
+			});
+		} catch (err) {
+			console.error("Error saving device visibility:", err);
+		}
+
 		setTimeout(() => {
 			animatingDeviceId = null;
 		}, 400);
@@ -78,29 +128,81 @@
 		return hiddenDevices.includes(deviceId);
 	}
 
-	// Load settings from localStorage on mount
-	onMount(() => {
-		const savedSettings = localStorage.getItem("enviroSyncSettings");
-		if (savedSettings) {
-			try {
-				const settings = JSON.parse(savedSettings);
-				tempNormalMin = settings.tempNormalMin ?? 18;
-				tempNormalMax = settings.tempNormalMax ?? 35;
-				tempSevere = settings.tempSevere ?? 40;
-				humidNormalMin = settings.humidNormalMin ?? 30;
-				humidNormalMax = settings.humidNormalMax ?? 80;
-				humidSevere = settings.humidSevere ?? 90;
-				rmsEarthquakeThreshold = settings.rmsEarthquakeThreshold ?? 0.05;
-				weakEarthquakeThreshold = settings.weakEarthquakeThreshold ?? 0.01;
-				strongEarthquakeThreshold = settings.strongEarthquakeThreshold ?? 0.1;
-				alwaysShowToast = settings.alwaysShowToast ?? false;
-			} catch (err) {
-				console.error("Error loading settings:", err);
+	// Load settings from server on mount, fall back to localStorage
+	onMount(async () => {
+		let perUserSettings = null;
+		let sharedSettings = null;
+
+		// Load per-user settings
+		try {
+			const res = await fetch("/api/settings");
+			if (res.ok) {
+				const data = await res.json();
+				if (data.settings) {
+					perUserSettings = data.settings;
+				}
+			}
+		} catch {
+			// Fall back to localStorage
+		}
+
+		// Load shared settings
+		try {
+			const res = await fetch("/api/settings?type=shared");
+			if (res.ok) {
+				const data = await res.json();
+				if (data.settings) {
+					sharedSettings = data.settings;
+				}
+			}
+		} catch {
+			// Fall back to localStorage
+		}
+
+		// Fall back to localStorage if server had no settings
+		let localSettings = null;
+		if (!perUserSettings && !sharedSettings) {
+			const savedSettings = localStorage.getItem("enviroSyncSettings");
+			if (savedSettings) {
+				try {
+					localSettings = JSON.parse(savedSettings);
+				} catch (err) {
+					console.error("Error loading settings:", err);
+				}
 			}
 		}
 
-		// Load hidden devices
-		hiddenDevices = getHiddenDeviceIds();
+		// Apply shared settings (or fall back to local)
+		const shared = sharedSettings || localSettings || {};
+		tempNormalMin = shared.tempNormalMin ?? 18;
+		tempNormalMax = shared.tempNormalMax ?? 35;
+		tempSevere = shared.tempSevere ?? 40;
+		humidNormalMin = shared.humidNormalMin ?? 30;
+		humidNormalMax = shared.humidNormalMax ?? 80;
+		humidSevere = shared.humidSevere ?? 90;
+		rmsEarthquakeThreshold = shared.rmsEarthquakeThreshold ?? 0.05;
+		weakEarthquakeThreshold = shared.weakEarthquakeThreshold ?? 0.01;
+		strongEarthquakeThreshold = shared.strongEarthquakeThreshold ?? 0.1;
+
+		// Apply per-user settings (or fall back to local)
+		const perUser = perUserSettings || localSettings || {};
+		alwaysShowToast = perUser.alwaysShowToast ?? false;
+		magnitudeMode = perUser.magnitudeMode ?? false;
+		darkModeEnabled = perUser.darkMode ?? false;
+
+		// Load hidden devices from server first, fall back to localStorage
+		try {
+			const res = await fetch("/api/device-visibility");
+			if (res.ok) {
+				const data = await res.json();
+				hiddenDevices = data.hiddenDevices || [];
+				setHiddenDeviceIds(hiddenDevices);
+			} else {
+				hiddenDevices = getHiddenDeviceIds();
+			}
+		} catch {
+			hiddenDevices = getHiddenDeviceIds();
+		}
 
 		// Fetch all devices from database
 		fetchAllDevices();
@@ -207,7 +309,122 @@
 		}
 	}
 
-	function saveSettings() {
+	// Database operations
+	async function confirmDeleteDevice() {
+		if (!deleteDeviceTarget) return;
+		dbOperationLoading = true;
+		dbOperationError = "";
+		dbOperationSuccess = "";
+		try {
+			const response = await fetch("/api/db-operations", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ action: "delete-device", deviceId: deleteDeviceTarget }),
+			});
+			const data = await response.json();
+			if (response.ok) {
+				dbOperationSuccess = `Device "${deleteDeviceTarget}" deleted successfully`;
+				allDevices = allDevices.filter((d) => d !== deleteDeviceTarget);
+				setTimeout(() => {
+					dbOperationSuccess = "";
+				}, 3000);
+			} else {
+				dbOperationError = data.error || "Failed to delete device";
+			}
+		} catch (err) {
+			dbOperationError = "Connection error";
+		} finally {
+			dbOperationLoading = false;
+			showDeleteDeviceDialog = false;
+			deleteDeviceTarget = null;
+		}
+	}
+
+	async function confirmResetEarthquake() {
+		dbOperationLoading = true;
+		dbOperationError = "";
+		dbOperationSuccess = "";
+		try {
+			const response = await fetch("/api/db-operations", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ action: "reset-earthquake", thresholds: { rmsEarthquakeThreshold } }),
+			});
+			const data = await response.json();
+			if (response.ok) {
+				dbOperationSuccess = "Earthquake data reset successfully";
+				setTimeout(() => {
+					dbOperationSuccess = "";
+				}, 3000);
+			} else {
+				dbOperationError = data.error || "Failed to reset earthquake data";
+			}
+		} catch (err) {
+			dbOperationError = "Connection error";
+		} finally {
+			dbOperationLoading = false;
+			showResetEarthquakeDialog = false;
+		}
+	}
+
+	async function confirmResetSevere() {
+		dbOperationLoading = true;
+		dbOperationError = "";
+		dbOperationSuccess = "";
+		try {
+			const response = await fetch("/api/db-operations", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ action: "reset-severe", thresholds: { tempSevere, humidSevere } }),
+			});
+			const data = await response.json();
+			if (response.ok) {
+				dbOperationSuccess = "Severe conditions data reset successfully";
+				setTimeout(() => {
+					dbOperationSuccess = "";
+				}, 3000);
+			} else {
+				dbOperationError = data.error || "Failed to reset severe conditions data";
+			}
+		} catch (err) {
+			dbOperationError = "Connection error";
+		} finally {
+			dbOperationLoading = false;
+			showResetSevereDialog = false;
+		}
+	}
+
+	async function confirmResetDatabase() {
+		if (!resetDatabaseConfirmValid) return;
+		dbOperationLoading = true;
+		dbOperationError = "";
+		dbOperationSuccess = "";
+		try {
+			const response = await fetch("/api/db-operations", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ action: "reset-database" }),
+			});
+			const data = await response.json();
+			if (response.ok) {
+				dbOperationSuccess = "Database reset successfully";
+				allDevices = [];
+				setTimeout(() => {
+					dbOperationSuccess = "";
+				}, 3000);
+			} else {
+				dbOperationError = data.error || "Failed to reset database";
+			}
+		} catch (err) {
+			dbOperationError = "Connection error";
+		} finally {
+			dbOperationLoading = false;
+			showResetDatabaseDialog = false;
+			resetDatabaseConfirmText = "";
+		}
+	}
+
+	async function saveSettings() {
 		try {
 			// Validate inputs
 			if (tempNormalMin < 0 || tempNormalMin >= tempNormalMax) {
@@ -239,8 +456,15 @@
 				return;
 			}
 
-			// Save to localStorage
-			const settings = {
+			// Per-user settings
+			const perUserSettings = {
+				magnitudeMode,
+				alwaysShowToast,
+				darkMode: darkModeEnabled,
+			};
+
+			// Shared settings
+			const sharedSettings = {
 				tempNormalMin,
 				tempNormalMax,
 				tempSevere,
@@ -250,10 +474,37 @@
 				rmsEarthquakeThreshold,
 				weakEarthquakeThreshold,
 				strongEarthquakeThreshold,
-				alwaysShowToast,
 			};
 
-			localStorage.setItem("enviroSyncSettings", JSON.stringify(settings));
+			// Merged settings for localStorage backwards compatibility
+			const mergedSettings = { ...sharedSettings, ...perUserSettings };
+			localStorage.setItem("enviroSyncSettings", JSON.stringify(mergedSettings));
+
+			// Update the in-memory stores so other components reflect the change immediately
+			magnitudeModeStore.set(magnitudeMode);
+			darkMode.set(darkModeEnabled);
+
+			// Save per-user settings to server
+			try {
+				await fetch("/api/settings", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ settings: perUserSettings }),
+				});
+			} catch (serverErr) {
+				console.error("Failed to save per-user settings to server:", serverErr);
+			}
+
+			// Save shared settings to server
+			try {
+				await fetch("/api/settings", {
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({ settings: sharedSettings, type: "shared" }),
+				});
+			} catch (serverErr) {
+				console.error("Failed to save shared settings to server:", serverErr);
+			}
 
 			saveSuccess = true;
 			saveError = "";
@@ -282,10 +533,6 @@
 	}
 </script>
 
-<div class="page-header">
-	<h1>Settings</h1>
-</div>
-
 <div class="settings-container">
 	<!-- Temperature Settings -->
 	<div class="setting-section">
@@ -293,7 +540,7 @@
 			<svg class="icon" viewBox="0 0 24 24" fill="currentColor">
 				<path d="M15 13V5c0-1.66-1.34-3-3-3S9 3.34 9 5v8c-1.21.91-2 2.37-2 4 0 2.76 2.24 5 5 5s5-2.24 5-5c0-1.63-.79-3.09-2-4zm-4-2V5c0-.55.45-1 1-1s1 .45 1 1v6h-2z" />
 			</svg>
-			Temperature Thresholds (°C)
+			Temperature Thresholds (&deg;C)
 		</h2>
 		<div class="settings-grid">
 			<div class="setting-item">
@@ -345,57 +592,101 @@
 			</svg>
 			Earthquake Detection Thresholds
 		</h2>
-		<div class="settings-grid">
-			<div class="setting-item">
-				<label for="rmsThreshold">General Detection Threshold (g)</label>
-				<input type="number" id="rmsThreshold" bind:value={rmsEarthquakeThreshold} step="0.001" min="0.001" />
-				<small>Minimum RMS to trigger earthquake detection</small>
+
+		<div class="toggle-setting" style="margin-bottom: 1.5rem; margin-top: 0;">
+			<div class="toggle-info">
+				<label for="magnitudeMode">Magnitude Conversion</label>
+				<small>Show thresholds as estimated Magnitude instead of RMS (g)</small>
 			</div>
-			<div class="setting-item">
-				<label for="weakThreshold">Weak Earthquake Threshold (g)</label>
-				<input type="number" id="weakThreshold" bind:value={weakEarthquakeThreshold} step="0.001" min="0.001" />
-				<small>RMS below this is considered weak (default: 0.01g ≈ Mag 2.1)</small>
-			</div>
-			<div class="setting-item">
-				<label for="strongThreshold">Strong Earthquake Threshold (g)</label>
-				<input type="number" id="strongThreshold" bind:value={strongEarthquakeThreshold} step="0.001" min="0.001" />
-				<small>RMS above this is considered strong (default: 0.1g ≈ Mag 4.4)</small>
-			</div>
+			<label class="toggle-switch">
+				<input type="checkbox" id="magnitudeMode" bind:checked={magnitudeMode} />
+				<span class="toggle-slider"></span>
+			</label>
 		</div>
-		<div class="info-box">
-			<p><strong>RMS to Magnitude Conversion Guide:</strong></p>
-			<div class="magnitude-table">
-				<div class="table-header">
-					<span>RMS (g)</span>
-					<span>Display Magnitude</span>
+
+		{#if !magnitudeMode}
+			<div class="settings-grid">
+				<div class="setting-item">
+					<label for="rmsThreshold">General Detection Threshold (g)</label>
+					<input type="number" id="rmsThreshold" bind:value={rmsEarthquakeThreshold} step="0.001" min="0.001" />
 				</div>
-				<div class="table-row">
-					<span>0.003</span>
-					<span>1.1</span>
+				<div class="setting-item">
+					<label for="weakThreshold">Weak Earthquake Threshold (g)</label>
+					<input type="number" id="weakThreshold" bind:value={weakEarthquakeThreshold} step="0.001" min="0.001" />
 				</div>
-				<div class="table-row">
-					<span>0.01</span>
-					<span>2.1</span>
-				</div>
-				<div class="table-row">
-					<span>0.03</span>
-					<span>3.2</span>
-				</div>
-				<div class="table-row">
-					<span>0.1</span>
-					<span>4.4</span>
-				</div>
-				<div class="table-row">
-					<span>0.3</span>
-					<span>5.5</span>
-				</div>
-				<div class="table-row">
-					<span>0.7</span>
-					<span>6.4</span>
+				<div class="setting-item">
+					<label for="strongThreshold">Strong Earthquake Threshold (g)</label>
+					<input type="number" id="strongThreshold" bind:value={strongEarthquakeThreshold} step="0.001" min="0.001" />
 				</div>
 			</div>
-			<p style="margin-top: 0.75rem; font-size: 0.9rem;"><strong>Note:</strong> Earthquakes below weak threshold are minor vibrations, between weak and strong are moderate, and above strong are significant seismic events.</p>
-		</div>
+			<div class="info-box">
+				<p><strong>RMS to Magnitude Conversion Guide:</strong></p>
+				<div class="magnitude-table">
+					<div class="table-header">
+						<span>RMS (g)</span>
+						<span>Display Magnitude</span>
+					</div>
+					<div class="table-row">
+						<span>0.003</span>
+						<span>1.1</span>
+					</div>
+					<div class="table-row">
+						<span>0.01</span>
+						<span>2.1</span>
+					</div>
+					<div class="table-row">
+						<span>0.03</span>
+						<span>3.2</span>
+					</div>
+					<div class="table-row">
+						<span>0.1</span>
+						<span>4.4</span>
+					</div>
+					<div class="table-row">
+						<span>0.3</span>
+						<span>5.5</span>
+					</div>
+					<div class="table-row">
+						<span>0.7</span>
+						<span>6.4</span>
+					</div>
+				</div>
+				<p style="margin-top: 0.75rem; font-size: 0.9rem;"><strong>Note:</strong> Earthquakes below weak threshold are minor vibrations, between weak and strong are moderate, and above strong are significant seismic events.</p>
+			</div>
+		{:else}
+			<div class="settings-grid">
+				<div class="setting-item">
+					<label for="rmsThresholdMag">General Detection Threshold (Magnitude)</label>
+					<input type="number" id="rmsThresholdMag" value={generalMag} on:input={(e) => handleMagInput("general", e)} step="0.1" min="0" />
+					<small>Minimum magnitude to trigger detection (RMS: {rmsEarthquakeThreshold.toFixed(4)}g)</small>
+				</div>
+				<div class="setting-item">
+					<label for="weakThresholdMag">Weak Earthquake Threshold (Magnitude)</label>
+					<input type="number" id="weakThresholdMag" value={weakMag} on:input={(e) => handleMagInput("weak", e)} step="0.1" min="0" />
+					<small>Below this is considered weak (RMS: {weakEarthquakeThreshold.toFixed(4)}g)</small>
+				</div>
+				<div class="setting-item">
+					<label for="strongThresholdMag">Strong Earthquake Threshold (Magnitude)</label>
+					<input type="number" id="strongThresholdMag" value={strongMag} on:input={(e) => handleMagInput("strong", e)} step="0.1" min="0" />
+					<small>Above this is considered strong (RMS: {strongEarthquakeThreshold.toFixed(4)}g)</small>
+				</div>
+			</div>
+			<div class="info-box">
+				<p><strong>RMS to Magnitude Reference:</strong></p>
+				<div class="magnitude-table">
+					<div class="table-header">
+						<span>RMS (g)</span>
+						<span>Magnitude</span>
+					</div>
+					{#each rmsToMagTable as [rms, mag]}
+						<div class="table-row">
+							<span>{rms}</span>
+							<span>{mag}</span>
+						</div>
+					{/each}
+				</div>
+			</div>
+		{/if}
 
 		<div class="toggle-setting">
 			<div class="toggle-info">
@@ -451,6 +742,26 @@
 		{/if}
 	</div>
 
+	<!-- Dark Mode -->
+	<div class="setting-section">
+		<h2>
+			<svg class="icon" viewBox="0 0 24 24" fill="currentColor">
+				<path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9 9-4.03 9-9c0-.46-.04-.92-.1-1.36-.98 1.37-2.58 2.26-4.4 2.26-2.98 0-5.4-2.42-5.4-5.4 0-1.81.89-3.42 2.26-4.4-.44-.06-.9-.1-1.36-.1z" />
+			</svg>
+			Dark Mode
+		</h2>
+		<div class="toggle-setting" style="margin-top: 0;">
+			<div class="toggle-info">
+				<label for="darkModeToggle">Enable Dark Mode</label>
+				<small>Switch between light and dark theme for the application</small>
+			</div>
+			<label class="toggle-switch">
+				<input type="checkbox" id="darkModeToggle" bind:checked={darkModeEnabled} />
+				<span class="toggle-slider"></span>
+			</label>
+		</div>
+	</div>
+
 	<!-- User Management -->
 	<div class="setting-section">
 		<h2>
@@ -459,7 +770,6 @@
 			</svg>
 			Users
 		</h2>
-		<p class="section-description">Manage user accounts for the system.</p>
 
 		{#if userError}
 			<div class="alert error" style="margin-bottom: 1rem;">{userError}</div>
@@ -491,9 +801,6 @@
 					<div class="user-item">
 						<div class="user-info-row">
 							<div class="user-details">
-								<svg class="user-icon" viewBox="0 0 24 24" fill="currentColor">
-									<path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
-								</svg>
 								<span class="user-name">{user.username}</span>
 								<span class="user-date">Created: {new Date(user.created_at).toLocaleDateString()}</span>
 							</div>
@@ -542,6 +849,98 @@
 		{/if}
 	</div>
 
+	<!-- Database Configuration -->
+	<div class="setting-section">
+		<button
+			class="db-config-toggle"
+			on:click={() => {
+				dbConfigOpen = !dbConfigOpen;
+			}}
+		>
+			<h2>
+				<svg class="icon" viewBox="0 0 24 24" fill="currentColor">
+					<path d="M12 2C6.48 2 2 4.02 2 6.5v11C2 19.98 6.48 22 12 22s10-2.02 10-4.5v-11C22 4.02 17.52 2 12 2zm0 18c-4.42 0-8-1.79-8-3.5v-2.04c1.76 1.22 4.67 2.04 8 2.04s6.24-.82 8-2.04v2.04c0 1.71-3.58 3.5-8 3.5zm0-5c-4.42 0-8-1.79-8-3.5v-2.04c1.76 1.22 4.67 2.04 8 2.04s6.24-.82 8-2.04v2.04c0 1.71-3.58 3.5-8 3.5zm0-5C7.58 10 4 8.21 4 6.5S7.58 3 12 3s8 1.79 8 3.5S16.42 10 12 10z" />
+				</svg>
+				DATABASE CONFIGURATION
+			</h2>
+			<svg class="chevron-icon" class:open={dbConfigOpen} viewBox="0 0 24 24" fill="currentColor">
+				<path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z" />
+			</svg>
+		</button>
+
+		{#if dbConfigOpen}
+			<div class="db-config-content">
+				{#if dbOperationError}
+					<div class="alert error" style="margin-bottom: 1rem;">{dbOperationError}</div>
+				{/if}
+				{#if dbOperationSuccess}
+					<div class="alert success" style="margin-bottom: 1rem;">{dbOperationSuccess}</div>
+				{/if}
+
+				<!-- DELETE DEVICE -->
+				<div class="db-subsection">
+					<h3>DELETE DEVICE</h3>
+					{#if loadingDevices}
+						<div class="loading-devices">
+							<div class="spinner-small"></div>
+							<span>Loading devices...</span>
+						</div>
+					{:else if allDevices.length === 0}
+						<div class="no-devices">No devices found in the database</div>
+					{:else}
+						<div class="devices-grid">
+							{#each allDevices as deviceId}
+								<div class="device-item">
+									<span class="device-name">{deviceId}</span>
+									<button
+										class="btn-small danger"
+										on:click={() => {
+											deleteDeviceTarget = deviceId;
+											showDeleteDeviceDialog = true;
+										}}>Delete</button
+									>
+								</div>
+							{/each}
+						</div>
+					{/if}
+				</div>
+
+				<!-- RESET EARTHQUAKE -->
+				<div class="db-subsection">
+					<h3>RESET EARTHQUAKE</h3>
+					<button
+						class="btn-danger-action"
+						on:click={() => {
+							showResetEarthquakeDialog = true;
+						}}>Reset Earthquake Data</button
+					>
+				</div>
+
+				<!-- RESET SEVERE CONDITIONS -->
+				<div class="db-subsection">
+					<h3>RESET SEVERE CONDITIONS</h3>
+					<button
+						class="btn-danger-action"
+						on:click={() => {
+							showResetSevereDialog = true;
+						}}>Reset Severe Conditions Data</button
+					>
+				</div>
+
+				<!-- RESET DATABASE -->
+				<div class="db-subsection">
+					<h3>RESET DATABASE</h3>
+					<button
+						class="btn-danger-action critical"
+						on:click={() => {
+							showResetDatabaseDialog = true;
+						}}>Reset Database</button
+					>
+				</div>
+			</div>
+		{/if}
+	</div>
+
 	<!-- Save Actions -->
 	<div class="actions">
 		<button class="btn-secondary" on:click={resetToDefaults}>Reset to Defaults</button>
@@ -559,22 +958,117 @@
 	{/if}
 </div>
 
+<!-- Delete Device Confirmation Dialog -->
+{#if showDeleteDeviceDialog}
+	<div
+		class="modal-overlay"
+		on:click|self={() => {
+			showDeleteDeviceDialog = false;
+			deleteDeviceTarget = null;
+		}}
+	>
+		<div class="modal-dialog">
+			<h3>Delete Device</h3>
+			<p>Are you sure you want to delete device {deleteDeviceTarget}? This will permanently remove all data for this device.</p>
+			<div class="modal-actions">
+				<button
+					class="btn-small cancel"
+					on:click={() => {
+						showDeleteDeviceDialog = false;
+						deleteDeviceTarget = null;
+					}}>Cancel</button
+				>
+				<button class="btn-small danger" disabled={dbOperationLoading} on:click={confirmDeleteDevice}>
+					{#if dbOperationLoading}Deleting...{:else}Delete{/if}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Reset Earthquake Confirmation Dialog -->
+{#if showResetEarthquakeDialog}
+	<div
+		class="modal-overlay"
+		on:click|self={() => {
+			showResetEarthquakeDialog = false;
+		}}
+	>
+		<div class="modal-dialog">
+			<h3>Reset Earthquake Data</h3>
+			<p>Are you sure you want to reset earthquake data? This will remove all earthquake records that exceed the current threshold.</p>
+			<div class="modal-actions">
+				<button
+					class="btn-small cancel"
+					on:click={() => {
+						showResetEarthquakeDialog = false;
+					}}>Cancel</button
+				>
+				<button class="btn-small danger" disabled={dbOperationLoading} on:click={confirmResetEarthquake}>
+					{#if dbOperationLoading}Resetting...{:else}Confirm{/if}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Reset Severe Conditions Confirmation Dialog -->
+{#if showResetSevereDialog}
+	<div
+		class="modal-overlay"
+		on:click|self={() => {
+			showResetSevereDialog = false;
+		}}
+	>
+		<div class="modal-dialog">
+			<h3>Reset Severe Conditions Data</h3>
+			<p>Are you sure you want to reset severe conditions data? This will remove all records where temperature or humidity exceeded severe thresholds.</p>
+			<div class="modal-actions">
+				<button
+					class="btn-small cancel"
+					on:click={() => {
+						showResetSevereDialog = false;
+					}}>Cancel</button
+				>
+				<button class="btn-small danger" disabled={dbOperationLoading} on:click={confirmResetSevere}>
+					{#if dbOperationLoading}Resetting...{:else}Confirm{/if}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
+<!-- Reset Database Confirmation Dialog -->
+{#if showResetDatabaseDialog}
+	<div
+		class="modal-overlay"
+		on:click|self={() => {
+			showResetDatabaseDialog = false;
+			resetDatabaseConfirmText = "";
+		}}
+	>
+		<div class="modal-dialog">
+			<h3>Reset Database</h3>
+			<p class="warning-text">WARNING: This action will delete ALL data in the database. This cannot be undone after it is confirmed and done.</p>
+			<p>Type <strong>YES I UNDERSTAND</strong> to confirm:</p>
+			<input type="text" class="confirm-input" bind:value={resetDatabaseConfirmText} placeholder="Type YES I UNDERSTAND" />
+			<div class="modal-actions">
+				<button
+					class="btn-small cancel"
+					on:click={() => {
+						showResetDatabaseDialog = false;
+						resetDatabaseConfirmText = "";
+					}}>Cancel</button
+				>
+				<button class="btn-small danger" disabled={!resetDatabaseConfirmValid || dbOperationLoading} on:click={confirmResetDatabase}>
+					{#if dbOperationLoading}Resetting...{:else}Confirm{/if}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
+
 <style>
-	.page-header {
-		margin-bottom: 2rem;
-	}
-
-	.page-header h1 {
-		font-size: 2rem;
-		margin-bottom: 0.5rem;
-		color: #fff;
-	}
-
-	.subtitle {
-		color: #888;
-		font-size: 1rem;
-	}
-
 	.settings-container {
 		max-width: 1000px;
 		display: flex;
@@ -583,10 +1077,10 @@
 	}
 
 	.setting-section {
-		background: rgba(0, 0, 0, 0.3);
+		background: var(--bg-overlay);
 		border-radius: 12px;
 		padding: 2rem;
-		border: 1px solid rgba(255, 255, 255, 0.1);
+		border: 1px solid var(--border-color);
 	}
 
 	.setting-section h2 {
@@ -595,7 +1089,7 @@
 		gap: 0.5rem;
 		font-size: 1.4rem;
 		margin-bottom: 1.5rem;
-		color: #fff;
+		color: var(--text-primary);
 	}
 
 	.icon {
@@ -617,35 +1111,35 @@
 	}
 
 	.setting-item label {
-		color: #b0b0b0;
+		color: var(--text-secondary);
 		font-weight: 500;
 		font-size: 0.95rem;
 	}
 
 	.setting-item input {
-		background: rgba(255, 255, 255, 0.05);
-		border: 1px solid rgba(255, 255, 255, 0.2);
+		background: var(--bg-input);
+		border: 1px solid var(--input-border);
 		border-radius: 6px;
 		padding: 0.75rem;
-		color: #fff;
+		color: var(--text-primary);
 		font-size: 1rem;
 		transition: all 0.2s;
 	}
 
 	.setting-item input:focus {
 		outline: none;
-		border-color: #4a90e2;
-		background: rgba(255, 255, 255, 0.08);
+		border-color: var(--text-primary);
+		background: var(--bg-hover);
 	}
 
 	.setting-item small {
-		color: #666;
+		color: var(--text-muted);
 		font-size: 0.85rem;
 	}
 
 	.info-box {
-		background: rgba(74, 144, 226, 0.1);
-		border: 1px solid rgba(74, 144, 226, 0.3);
+		background: var(--bg-hover);
+		border: 1px solid var(--border-color);
 		border-radius: 6px;
 		padding: 1rem;
 		margin-top: 1rem;
@@ -653,7 +1147,7 @@
 
 	.info-box p {
 		margin: 0 0 0.5rem 0;
-		color: #4a90e2;
+		color: var(--text-primary);
 	}
 
 	.magnitude-table {
@@ -668,23 +1162,23 @@
 		display: grid;
 		grid-template-columns: 1fr 1fr;
 		padding: 0.5rem;
-		background: rgba(74, 144, 226, 0.2);
+		background: var(--bg-overlay);
 		border-radius: 4px;
 		font-weight: 600;
-		color: #4a90e2;
+		color: var(--text-primary);
 	}
 
 	.table-row {
 		display: grid;
 		grid-template-columns: 1fr 1fr;
 		padding: 0.4rem 0.5rem;
-		background: rgba(255, 255, 255, 0.05);
+		background: var(--bg-hover);
 		border-radius: 3px;
-		color: #b0b0b0;
+		color: var(--text-secondary);
 	}
 
 	.table-row:hover {
-		background: rgba(255, 255, 255, 0.08);
+		background: var(--bg-overlay);
 	}
 
 	.actions {
@@ -706,23 +1200,23 @@
 	}
 
 	.btn-primary {
-		background: #4a90e2;
-		color: white;
+		background: var(--text-primary);
+		color: var(--bg-primary);
 	}
 
 	.btn-primary:hover {
-		background: #357abd;
+		filter: brightness(0.9);
 	}
 
 	.btn-secondary {
-		background: rgba(255, 255, 255, 0.1);
-		color: #b0b0b0;
-		border: 1px solid rgba(255, 255, 255, 0.2);
+		background: var(--bg-hover);
+		color: var(--text-secondary);
+		border: 1px solid var(--input-border);
 	}
 
 	.btn-secondary:hover {
-		background: rgba(255, 255, 255, 0.15);
-		color: #fff;
+		background: var(--bg-overlay);
+		color: var(--text-primary);
 	}
 
 	.alert {
@@ -734,19 +1228,19 @@
 	}
 
 	.alert.success {
-		background: rgba(76, 175, 80, 0.2);
-		border: 1px solid #4caf50;
-		color: #4caf50;
+		background: var(--bg-hover);
+		border: 1px solid var(--border-color);
+		color: var(--text-primary);
 	}
 
 	.alert.error {
-		background: rgba(244, 67, 54, 0.2);
-		border: 1px solid #f44336;
-		color: #f44336;
+		background: var(--bg-hover);
+		border: 1px solid var(--text-muted);
+		color: var(--text-primary);
 	}
 
 	.section-description {
-		color: #888;
+		color: var(--text-muted);
 		font-size: 0.95rem;
 		margin-bottom: 1.5rem;
 	}
@@ -756,14 +1250,14 @@
 		align-items: center;
 		gap: 0.75rem;
 		padding: 1rem;
-		color: #888;
+		color: var(--text-muted);
 	}
 
 	.spinner-small {
 		width: 20px;
 		height: 20px;
-		border: 2px solid #333;
-		border-top: 2px solid #4a90e2;
+		border: 2px solid var(--border-color);
+		border-top: 2px solid var(--text-primary);
 		border-radius: 50%;
 		animation: spin 1s linear infinite;
 	}
@@ -780,7 +1274,7 @@
 	.no-devices {
 		text-align: center;
 		padding: 2rem;
-		color: #666;
+		color: var(--text-muted);
 		font-style: italic;
 	}
 
@@ -795,24 +1289,24 @@
 		justify-content: space-between;
 		align-items: center;
 		padding: 0.75rem 1rem;
-		background: rgba(255, 255, 255, 0.05);
-		border: 1px solid rgba(255, 255, 255, 0.1);
+		background: var(--bg-hover);
+		border: 1px solid var(--border-color);
 		border-radius: 8px;
 		transition: all 0.2s;
 	}
 
 	.device-item.hidden {
 		opacity: 0.5;
-		background: rgba(255, 255, 255, 0.02);
+		background: var(--bg-overlay);
 	}
 
 	.device-name {
 		font-weight: 500;
-		color: #fff;
+		color: var(--text-primary);
 	}
 
 	.device-item.hidden .device-name {
-		color: #888;
+		color: var(--text-muted);
 		text-decoration: line-through;
 	}
 
@@ -826,14 +1320,14 @@
 		font-weight: 500;
 		cursor: pointer;
 		transition: all 0.2s;
-		border: none;
-		background: rgba(76, 175, 80, 0.2);
-		color: #4caf50;
+		border: 1px solid var(--border-color);
+		background: var(--bg-hover);
+		color: var(--text-secondary);
 	}
 
 	.visibility-btn.hidden {
-		background: rgba(74, 144, 226, 0.2);
-		color: #4a90e2;
+		background: var(--bg-overlay);
+		color: var(--text-muted);
 	}
 
 	.visibility-btn:hover {
@@ -899,11 +1393,11 @@
 	}
 
 	.user-input {
-		background: rgba(255, 255, 255, 0.05);
-		border: 1px solid rgba(255, 255, 255, 0.2);
+		background: var(--bg-input);
+		border: 1px solid var(--input-border);
 		border-radius: 6px;
 		padding: 0.65rem 0.75rem;
-		color: #fff;
+		color: var(--text-primary);
 		font-size: 0.95rem;
 		transition: all 0.2s;
 		flex: 1;
@@ -913,8 +1407,8 @@
 
 	.user-input:focus {
 		outline: none;
-		border-color: #4a90e2;
-		background: rgba(255, 255, 255, 0.08);
+		border-color: var(--text-primary);
+		background: var(--bg-hover);
 	}
 
 	.user-input.small {
@@ -926,8 +1420,8 @@
 	}
 
 	.btn-create-user {
-		background: #4a90e2;
-		color: white;
+		background: var(--text-primary);
+		color: var(--bg-primary);
 		border: none;
 		border-radius: 6px;
 		padding: 0.65rem 1.25rem;
@@ -940,7 +1434,7 @@
 	}
 
 	.btn-create-user:hover {
-		background: #357abd;
+		filter: brightness(0.9);
 	}
 
 	.users-list {
@@ -950,15 +1444,15 @@
 	}
 
 	.user-item {
-		background: rgba(255, 255, 255, 0.05);
-		border: 1px solid rgba(255, 255, 255, 0.1);
+		background: var(--bg-hover);
+		border: 1px solid var(--border-color);
 		border-radius: 8px;
 		padding: 0.85rem 1rem;
 		transition: all 0.2s;
 	}
 
 	.user-item:hover {
-		background: rgba(255, 255, 255, 0.08);
+		background: var(--bg-overlay);
 	}
 
 	.user-info-row {
@@ -975,21 +1469,14 @@
 		gap: 0.5rem;
 	}
 
-	.user-icon {
-		width: 20px;
-		height: 20px;
-		color: #4a90e2;
-		flex-shrink: 0;
-	}
-
 	.user-name {
 		font-weight: 600;
-		color: #fff;
+		color: var(--text-primary);
 		font-size: 1rem;
 	}
 
 	.user-date {
-		color: #666;
+		color: var(--text-muted);
 		font-size: 0.8rem;
 	}
 
@@ -1007,7 +1494,7 @@
 	}
 
 	.confirm-text {
-		color: #f44336;
+		color: var(--text-primary);
 		font-size: 0.85rem;
 		font-weight: 500;
 	}
@@ -1019,59 +1506,289 @@
 		font-weight: 500;
 		cursor: pointer;
 		transition: all 0.2s;
-		border: 1px solid rgba(74, 144, 226, 0.3);
-		background: rgba(74, 144, 226, 0.1);
-		color: #4a90e2;
+		border: 1px solid var(--border-color);
+		background: var(--bg-hover);
+		color: var(--text-secondary);
 		font-family: inherit;
 	}
 
 	.btn-small:hover {
-		background: rgba(74, 144, 226, 0.2);
-		border-color: #4a90e2;
+		background: var(--bg-overlay);
+		border-color: var(--text-muted);
+		color: var(--text-primary);
 	}
 
 	.btn-small.confirm {
-		background: rgba(76, 175, 80, 0.2);
-		border-color: rgba(76, 175, 80, 0.3);
-		color: #4caf50;
+		background: var(--text-primary);
+		border-color: var(--text-primary);
+		color: var(--bg-primary);
 	}
 
 	.btn-small.confirm:hover {
-		background: rgba(76, 175, 80, 0.3);
-		border-color: #4caf50;
+		filter: brightness(0.9);
 	}
 
 	.btn-small.cancel {
-		background: rgba(255, 255, 255, 0.05);
-		border-color: rgba(255, 255, 255, 0.15);
-		color: #888;
+		background: var(--bg-hover);
+		border-color: var(--border-color);
+		color: var(--text-muted);
 	}
 
 	.btn-small.cancel:hover {
-		background: rgba(255, 255, 255, 0.1);
-		color: #fff;
+		background: var(--bg-overlay);
+		color: var(--text-primary);
 	}
 
 	.btn-small.danger {
-		background: rgba(244, 67, 54, 0.2);
-		border-color: rgba(244, 67, 54, 0.3);
-		color: #f44336;
+		background: var(--bg-overlay);
+		border-color: var(--text-muted);
+		color: var(--text-primary);
 	}
 
 	.btn-small.danger:hover {
-		background: rgba(244, 67, 54, 0.3);
-		border-color: #f44336;
+		background: var(--bg-hover);
+		border-color: var(--text-primary);
+	}
+
+	.btn-small.danger:disabled {
+		opacity: 0.4;
+		cursor: not-allowed;
 	}
 
 	.btn-small.danger-outline {
 		background: transparent;
-		border-color: rgba(244, 67, 54, 0.3);
-		color: #f44336;
+		border-color: var(--text-muted);
+		color: var(--text-secondary);
 	}
 
 	.btn-small.danger-outline:hover {
-		background: rgba(244, 67, 54, 0.15);
-		border-color: #f44336;
+		background: var(--bg-hover);
+		border-color: var(--text-primary);
+		color: var(--text-primary);
+	}
+
+	/* Toggle switch */
+	.toggle-setting {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 1rem;
+		margin-top: 1rem;
+		background: var(--bg-hover);
+		border: 1px solid var(--border-color);
+		border-radius: 8px;
+		gap: 1rem;
+	}
+
+	.toggle-info {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
+	.toggle-info label {
+		color: var(--text-primary);
+		font-weight: 500;
+		font-size: 0.95rem;
+		cursor: pointer;
+	}
+
+	.toggle-info small {
+		color: var(--text-muted);
+		font-size: 0.85rem;
+	}
+
+	.toggle-switch {
+		position: relative;
+		display: inline-block;
+		width: 48px;
+		height: 26px;
+		flex-shrink: 0;
+	}
+
+	.toggle-switch input {
+		opacity: 0;
+		width: 0;
+		height: 0;
+	}
+
+	.toggle-slider {
+		position: absolute;
+		cursor: pointer;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: var(--border-color);
+		transition: 0.3s;
+		border-radius: 26px;
+	}
+
+	.toggle-slider:before {
+		position: absolute;
+		content: "";
+		height: 20px;
+		width: 20px;
+		left: 3px;
+		bottom: 3px;
+		background: var(--text-primary);
+		transition: 0.3s;
+		border-radius: 50%;
+	}
+
+	.toggle-switch input:checked + .toggle-slider {
+		background: var(--text-primary);
+	}
+
+	.toggle-switch input:checked + .toggle-slider:before {
+		transform: translateX(22px);
+	}
+
+	/* Database Configuration */
+	.db-config-toggle {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		width: 100%;
+		background: none;
+		border: none;
+		cursor: pointer;
+		padding: 0;
+		color: inherit;
+		font-family: inherit;
+	}
+
+	.db-config-toggle h2 {
+		margin-bottom: 0;
+	}
+
+	.chevron-icon {
+		width: 24px;
+		height: 24px;
+		color: var(--text-secondary);
+		transition: transform 0.3s ease;
+		flex-shrink: 0;
+	}
+
+	.chevron-icon.open {
+		transform: rotate(180deg);
+	}
+
+	.db-config-content {
+		margin-top: 1.5rem;
+		display: flex;
+		flex-direction: column;
+		gap: 1.5rem;
+	}
+
+	.db-subsection {
+		background: var(--bg-hover);
+		border: 1px solid var(--border-color);
+		border-radius: 8px;
+		padding: 1.25rem;
+	}
+
+	.db-subsection h3 {
+		font-size: 1rem;
+		font-weight: 600;
+		color: var(--text-secondary);
+		margin-bottom: 1rem;
+		letter-spacing: 0.5px;
+	}
+
+	.btn-danger-action {
+		background: var(--bg-overlay);
+		border: 1px solid var(--text-muted);
+		border-radius: 6px;
+		padding: 0.65rem 1.25rem;
+		color: var(--text-primary);
+		font-size: 0.95rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.2s;
+		font-family: inherit;
+	}
+
+	.btn-danger-action:hover {
+		background: var(--bg-hover);
+		border-color: var(--text-primary);
+	}
+
+	.btn-danger-action.critical {
+		background: var(--bg-hover);
+		border-color: var(--text-primary);
+	}
+
+	.btn-danger-action.critical:hover {
+		background: var(--bg-overlay);
+	}
+
+	/* Modal Dialog */
+	.modal-overlay {
+		position: fixed;
+		top: 0;
+		left: 0;
+		right: 0;
+		bottom: 0;
+		background: rgba(0, 0, 0, 0.6);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 9999;
+	}
+
+	.modal-dialog {
+		background: var(--bg-card);
+		border: 1px solid var(--border-color);
+		border-radius: 12px;
+		padding: 2rem;
+		max-width: 480px;
+		width: 90%;
+		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+	}
+
+	.modal-dialog h3 {
+		font-size: 1.25rem;
+		color: var(--text-primary);
+		margin-bottom: 1rem;
+	}
+
+	.modal-dialog p {
+		color: var(--text-secondary);
+		font-size: 0.95rem;
+		line-height: 1.5;
+		margin-bottom: 1rem;
+	}
+
+	.modal-dialog .warning-text {
+		color: var(--text-primary);
+		font-weight: 600;
+		font-size: 1rem;
+	}
+
+	.confirm-input {
+		width: 100%;
+		background: var(--bg-input);
+		border: 1px solid var(--input-border);
+		border-radius: 6px;
+		padding: 0.75rem;
+		color: var(--text-primary);
+		font-size: 1rem;
+		font-family: inherit;
+		margin-bottom: 1rem;
+		transition: all 0.2s;
+	}
+
+	.confirm-input:focus {
+		outline: none;
+		border-color: var(--text-primary);
+		background: var(--bg-hover);
+	}
+
+	.modal-actions {
+		display: flex;
+		gap: 0.75rem;
+		justify-content: flex-end;
 	}
 
 	@media (max-width: 768px) {
@@ -1106,82 +1823,9 @@
 		.change-password-inline {
 			flex-wrap: wrap;
 		}
-	}
 
-	/* Toggle switch */
-	.toggle-setting {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		padding: 1rem;
-		margin-top: 1rem;
-		background: rgba(255, 255, 255, 0.03);
-		border: 1px solid rgba(255, 255, 255, 0.1);
-		border-radius: 8px;
-		gap: 1rem;
-	}
-
-	.toggle-info {
-		display: flex;
-		flex-direction: column;
-		gap: 0.25rem;
-	}
-
-	.toggle-info label {
-		color: #fff;
-		font-weight: 500;
-		font-size: 0.95rem;
-		cursor: pointer;
-	}
-
-	.toggle-info small {
-		color: #666;
-		font-size: 0.85rem;
-	}
-
-	.toggle-switch {
-		position: relative;
-		display: inline-block;
-		width: 48px;
-		height: 26px;
-		flex-shrink: 0;
-	}
-
-	.toggle-switch input {
-		opacity: 0;
-		width: 0;
-		height: 0;
-	}
-
-	.toggle-slider {
-		position: absolute;
-		cursor: pointer;
-		top: 0;
-		left: 0;
-		right: 0;
-		bottom: 0;
-		background: rgba(255, 255, 255, 0.15);
-		transition: 0.3s;
-		border-radius: 26px;
-	}
-
-	.toggle-slider:before {
-		position: absolute;
-		content: "";
-		height: 20px;
-		width: 20px;
-		left: 3px;
-		bottom: 3px;
-		background: #fff;
-		transition: 0.3s;
-		border-radius: 50%;
-	}
-
-	.toggle-switch input:checked + .toggle-slider {
-		background: #4a90e2;
-	}
-
-	.toggle-switch input:checked + .toggle-slider:before {
-		transform: translateX(22px);
+		.devices-grid {
+			grid-template-columns: 1fr;
+		}
 	}
 </style>

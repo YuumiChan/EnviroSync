@@ -1,5 +1,6 @@
 <script>
 	import { goto } from "$app/navigation";
+	import { darkMode } from "$lib/stores.js";
 
 	let username = "";
 	let password = "";
@@ -19,12 +20,23 @@
 			const response = await fetch("/api/auth/login", {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ username, password }),
+				body: JSON.stringify({ username: username.trim(), password }),
 			});
 
 			const data = await response.json();
 
 			if (response.ok) {
+				// Load user settings after login to get dark mode preference
+				try {
+					const settingsRes = await fetch("/api/settings");
+					if (settingsRes.ok) {
+						const settingsData = await settingsRes.json();
+						if (settingsData && settingsData.settings) {
+							localStorage.setItem("enviroSyncSettings", JSON.stringify(settingsData.settings));
+							darkMode.set(!!settingsData.settings.darkMode);
+						}
+					}
+				} catch {}
 				goto("/");
 			} else {
 				error = data.error || "Login failed";
@@ -89,18 +101,18 @@
 		justify-content: center;
 		min-height: 100vh;
 		width: 100%;
-		background-color: #1a1a1a;
+		background-color: var(--bg-primary);
 		padding: 1rem;
 	}
 
 	.login-card {
-		background: #2a2a2a;
-		border: 1px solid #444444;
+		background: var(--bg-secondary);
+		border: 1px solid var(--border-color);
 		border-radius: 16px;
 		padding: 3rem;
 		width: 100%;
 		max-width: 420px;
-		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+		box-shadow: var(--shadow);
 	}
 
 	.login-header {
@@ -111,7 +123,7 @@
 	.logo {
 		width: 3.5rem;
 		height: 3.5rem;
-		background: linear-gradient(135deg, #4a90e2, #9b59b6);
+		background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
 		border-radius: 0.75rem;
 		display: inline-flex;
 		align-items: center;
@@ -125,12 +137,12 @@
 	.login-header h1 {
 		font-size: 1.8rem;
 		font-weight: 700;
-		color: #ffffff;
+		color: var(--text-primary);
 		margin: 0;
 	}
 
 	.login-subtitle {
-		color: #888888;
+		color: var(--text-muted);
 		font-size: 0.95rem;
 		margin-top: 0.5rem;
 	}
@@ -150,15 +162,15 @@
 	.input-group label {
 		font-size: 0.9rem;
 		font-weight: 500;
-		color: #b3b3b3;
+		color: var(--text-secondary);
 	}
 
 	.input-group input {
-		background: rgba(255, 255, 255, 0.05);
-		border: 1px solid #444444;
+		background: var(--bg-input);
+		border: 1px solid var(--border-color);
 		border-radius: 8px;
 		padding: 0.85rem 1rem;
-		color: #ffffff;
+		color: var(--text-primary);
 		font-size: 1rem;
 		font-family: inherit;
 		transition: all 0.2s ease;
@@ -166,12 +178,11 @@
 	}
 
 	.input-group input::placeholder {
-		color: #666666;
+		color: var(--text-muted);
 	}
 
 	.input-group input:focus {
-		border-color: #4a90e2;
-		background: rgba(74, 144, 226, 0.05);
+		border-color: var(--accent-blue);
 	}
 
 	.input-group input:disabled {
@@ -179,9 +190,9 @@
 	}
 
 	.error-message {
-		background: rgba(244, 67, 54, 0.15);
-		border: 1px solid rgba(244, 67, 54, 0.3);
-		color: #f44336;
+		background: rgba(230, 80, 80, 0.12);
+		border: 1px solid rgba(230, 80, 80, 0.3);
+		color: var(--accent-red, #e65050);
 		padding: 0.75rem 1rem;
 		border-radius: 8px;
 		font-size: 0.9rem;
@@ -189,7 +200,7 @@
 	}
 
 	.login-btn {
-		background: #4a90e2;
+		background: var(--accent-blue);
 		color: white;
 		border: none;
 		border-radius: 8px;
@@ -207,7 +218,7 @@
 	}
 
 	.login-btn:hover:not(:disabled) {
-		background: #357abd;
+		opacity: 0.9;
 	}
 
 	.login-btn:disabled {

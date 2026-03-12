@@ -1,6 +1,8 @@
 <script>
 	import { config, localNow } from "$lib/config.js";
+	import { rmsToMagnitude } from "$lib/magnitude.js";
 	import { getTableName } from "$lib/questdbHelpers.js";
+	import { magnitudeMode } from "$lib/stores.js";
 	import { createEventDispatcher, onDestroy, onMount } from "svelte";
 
 	export let selectedDevice = "DHT11";
@@ -32,13 +34,9 @@
 
 			const currentQuery = `SELECT temp, humid, ts, rms, quake_flag FROM ${tableName} WHERE ${deviceCol}='${selectedDevice}' ORDER BY ts DESC LIMIT 1`;
 			const avgQuery = `SELECT AVG(temp) as temp_avg, AVG(humid) as humid_avg FROM ${tableName} WHERE ${deviceCol}='${selectedDevice}' AND ts > dateadd('h', -24, ${localNow()})`;
-			const peakRmsQuery = `SELECT MAX(rms) as peak_rms, MAX(ts) as peak_ts FROM ${tableName} WHERE ${deviceCol}='${selectedDevice}' AND quake_flag = 2 AND ts > dateadd('h', -24, ${localNow()})`;
+			const peakRmsQuery = `SELECT MAX(rms) as peak_rms, MAX(ts) as peak_ts FROM ${tableName} WHERE ${deviceCol}='${selectedDevice}' AND quake_flag = 2`;
 
-			const [currentResponse, avgResponse, peakResponse] = await Promise.all([
-				fetch(`/api/questdb?query=${encodeURIComponent(currentQuery)}`),
-				fetch(`/api/questdb?query=${encodeURIComponent(avgQuery)}`),
-				fetch(`/api/questdb?query=${encodeURIComponent(peakRmsQuery)}`),
-			]);
+			const [currentResponse, avgResponse, peakResponse] = await Promise.all([fetch(`/api/questdb?query=${encodeURIComponent(currentQuery)}`), fetch(`/api/questdb?query=${encodeURIComponent(avgQuery)}`), fetch(`/api/questdb?query=${encodeURIComponent(peakRmsQuery)}`)]);
 
 			if (currentResponse.ok) {
 				const currentResult = await currentResponse.json();
@@ -105,9 +103,7 @@
 
 			// Determine RMS status
 			const savedSettings = localStorage.getItem("enviroSyncSettings");
-			const settings = savedSettings
-				? JSON.parse(savedSettings)
-				: { weakEarthquakeThreshold: 0.01, strongEarthquakeThreshold: 0.1 };
+			const settings = savedSettings ? JSON.parse(savedSettings) : { weakEarthquakeThreshold: 0.01, strongEarthquakeThreshold: 0.1 };
 
 			const rmsVal = parseFloat(latestRms);
 			if (rmsVal >= settings.strongEarthquakeThreshold) {
@@ -167,7 +163,9 @@
 
 	$: if (selectedDevice) {
 		if (metricsTimeout) clearTimeout(metricsTimeout);
-		metricsTimeout = setTimeout(() => { fetchCurrentMetrics(); }, 350);
+		metricsTimeout = setTimeout(() => {
+			fetchCurrentMetrics();
+		}, 350);
 	}
 
 	onMount(() => {
@@ -216,31 +214,28 @@
 			{#if status !== "Offline"}
 				<div class="metric-average">Last Update: {lastUpdate}</div>
 			{/if}
-			<div class="metric-hint">Click for RMS view</div>
+			<div class="metric-hint">Click for Magnitude view</div>
 		</button>
 	{:else}
-		<!-- RMS mode: Latest RMS, Last peak time, Status (clickable to revert) -->
+		<!-- Magnitude mode: Latest magnitude value and status (clickable to revert) -->
 		<div class="metric-card">
 			<div class="metric-header">
-				<span class="metric-label">&mdash;</span>
+				<span class="metric-label">{$magnitudeMode ? 'Magnitude' : 'RMS'}</span>
 			</div>
 			{#if status === "Offline"}
 				<div class="metric-value offline">Offline</div>
 			{:else}
-				<div class="metric-value rms">{latestRms}g</div>
+				{#if $magnitudeMode}
+					<div class="metric-value rms">{rmsToMagnitude(parseFloat(latestRms)).toFixed(1)} Mag</div>
+				{:else}
+					<div class="metric-value rms">{latestRms}g</div>
+				{/if}
 			{/if}
-		</div>
-
-		<div class="metric-card">
-			<div class="metric-header">
-				<span class="metric-label">Last Peak</span>
-			</div>
-			<div class="metric-value peak-time">{peakRmsTime || "N/A"}</div>
 		</div>
 
 		<button class="metric-card clickable" on:click={toggleRmsMode}>
 			<div class="metric-header">
-				<span class="metric-label">RMS Status</span>
+				<span class="metric-label">{$magnitudeMode ? 'Magnitude' : 'RMS'} Status</span>
 			</div>
 			<div class="metric-value status-indicator {rmsStatus.toLowerCase()}">{rmsStatus}</div>
 			<div class="metric-hint">Click to go back</div>
@@ -254,18 +249,18 @@
 	}
 
 	.metric-card {
-		background: rgba(0, 0, 0, 0.3);
+		background: var(--bg-overlay);
 		border-radius: 8px;
 		padding: 1rem;
-		border: 1px solid rgba(74, 144, 226, 0.2);
+		border: 1px solid var(--border-color);
 		transition: all 0.3s ease;
 		text-align: center;
 	}
 
 	.metric-card:hover {
-		border-color: #4a90e2;
+		border-color: var(--accent-blue);
 		transform: translateY(-2px);
-		box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+		box-shadow: var(--shadow);
 	}
 
 	.metric-card.clickable {
@@ -277,8 +272,7 @@
 	}
 
 	.metric-card.clickable:hover {
-		border-color: #4a90e2;
-		background: rgba(74, 144, 226, 0.05);
+		border-color: var(--accent-blue);
 	}
 
 	.metric-header {
@@ -291,7 +285,7 @@
 
 	.metric-label {
 		font-size: 1.1rem;
-		color: #b0b0b0;
+		color: var(--text-secondary);
 		font-weight: 500;
 	}
 
@@ -299,28 +293,28 @@
 		font-size: 2.2rem;
 		font-weight: bold;
 		margin-bottom: 0.3rem;
-		color: #fff;
+		color: var(--text-primary);
 	}
 
 	.metric-value.temperature {
-		color: #ffffff;
+		color: var(--text-primary);
 	}
 
 	.metric-value.humidity {
-		color: #ffffff;
+		color: var(--text-primary);
 	}
 
 	.metric-value.rms {
-		color: #9b59b6;
+		color: var(--text-primary);
 	}
 
 	.metric-value.peak-time {
-		color: #b0b0b0;
+		color: var(--text-secondary);
 		font-size: 1.1rem;
 	}
 
 	.metric-value.offline {
-		color: #757575;
+		color: var(--text-muted);
 	}
 
 	.metric-value.status-indicator {
@@ -329,38 +323,39 @@
 	}
 
 	.metric-value.status-indicator.normal {
-		color: #4caf50;
+		color: var(--text-primary);
 	}
 
 	.metric-value.status-indicator.warning {
-		color: #ff9800;
+		color: var(--text-primary);
 	}
 
 	.metric-value.status-indicator.severe {
-		color: #f44336;
+		color: var(--text-primary);
 	}
 
 	.metric-value.status-indicator.offline {
-		color: #757575;
+		color: var(--text-muted);
 	}
 
 	.metric-value.status-indicator.weak {
-		color: #FFD150;
+		color: var(--text-primary);
 	}
 
 	.metric-value.status-indicator.strong {
-		color: #8A244B;
+		color: var(--text-primary);
 	}
 
 	.metric-average,
 	.status-details {
 		font-size: 1rem;
-		color: #888;
+		color: var(--text-muted);
 	}
 
 	.metric-hint {
 		font-size: 0.75rem;
-		color: #555;
+		color: var(--text-muted);
 		margin-top: 0.4rem;
+		opacity: 0.6;
 	}
 </style>

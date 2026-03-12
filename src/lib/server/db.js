@@ -36,6 +36,24 @@ export function getDb() {
 				expires_at DATETIME NOT NULL,
 				FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 			);
+
+			CREATE TABLE IF NOT EXISTS hidden_devices (
+				user_id INTEGER NOT NULL,
+				device_id TEXT NOT NULL,
+				PRIMARY KEY (user_id, device_id),
+				FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+			);
+
+			CREATE TABLE IF NOT EXISTS user_settings (
+				user_id INTEGER PRIMARY KEY,
+				settings_json TEXT NOT NULL DEFAULT '{}',
+				FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+			);
+
+			CREATE TABLE IF NOT EXISTS shared_settings (
+				id INTEGER PRIMARY KEY DEFAULT 1,
+				settings_json TEXT NOT NULL DEFAULT '{}'
+			);
 		`);
 
 		// Create default admin user if no users exist

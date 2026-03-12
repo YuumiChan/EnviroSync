@@ -101,7 +101,7 @@
 					},
 					title: {
 						display: true,
-						text: "RMS Magnitude During Earthquake Detection (Last 24h)",
+						text: "Magnitude During Earthquake Detection (Last 24h)",
 						color: "#fff",
 						font: { size: 16, weight: "bold" },
 					},
@@ -130,7 +130,7 @@
 						beginAtZero: true,
 						title: {
 							display: true,
-							text: "RMS Magnitude (g)",
+							text: "Magnitude (g)",
 							color: "#fff",
 						},
 						ticks: {
@@ -159,7 +159,7 @@
 <div class="earthquake-modal-overlay" on:click={onClose}>
 	<div class="earthquake-modal" on:click|stopPropagation>
 		<div class="modal-header">
-			<h2>Earthquake Detection - RMS Comparison</h2>
+			<h2>Earthquake Detection - Magnitude Comparison</h2>
 			<button class="close-btn" on:click={onClose}>×</button>
 		</div>
 
@@ -175,7 +175,7 @@
 				</div>
 
 				<div class="info-section">
-					<h3>Understanding RMS Magnitude (g-force)</h3>
+					<h3>Understanding Magnitude (g-force)</h3>
 					<div class="info-grid">
 						<div class="info-card rest">
 							<div class="range">0g - 0.001g</div>

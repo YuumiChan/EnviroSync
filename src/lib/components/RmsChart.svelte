@@ -81,7 +81,7 @@
 				labels: [],
 				datasets: [
 					{
-						label: "RMS",
+						label: "Magnitude",
 						data: [],
 						borderColor: "#9c27b0",
 						backgroundColor: "rgba(156, 39, 176, 0.1)",
@@ -141,11 +141,7 @@
 						},
 						title: {
 							display: true,
-							text: "RMS Value",
-							color: "#888888",
-						},
-					},
-				},
+						text: "Magnitude (g)",
 			},
 		});
 
@@ -161,7 +157,7 @@
 
 <div class="chart-container">
 	<div class="chart-header">
-		<h2>RMS Monitoring</h2>
+		<h2>Magnitude Monitoring</h2>
 		<div class="time-range-buttons">
 			{#each timeRangeOptions as option}
 				<button class="time-range-btn" class:active={timeRange === option.value} on:click={() => changeTimeRange(option.value)}>
@@ -180,10 +176,10 @@
 
 <style>
 	.chart-container {
-		background: rgba(0, 0, 0, 0.3);
+		background: var(--bg-overlay);
 		border-radius: 12px;
 		padding: 1.5rem;
-		border: 1px solid rgba(74, 144, 226, 0.2);
+		border: 1px solid var(--border-color);
 		margin-bottom: 2rem;
 	}
 
@@ -198,7 +194,7 @@
 
 	h2 {
 		font-size: 1.5rem;
-		color: #ffffff;
+		color: var(--text-primary);
 		margin: 0;
 	}
 
@@ -209,24 +205,25 @@
 
 	.time-range-btn {
 		padding: 0.5rem 1rem;
-		border: 1px solid rgba(156, 39, 176, 0.3);
-		background: rgba(0, 0, 0, 0.3);
-		color: #9c27b0;
+		border: 1px solid var(--border-color);
+		background: var(--bg-overlay);
+		color: var(--text-secondary);
 		border-radius: 6px;
 		cursor: pointer;
 		transition: all 0.2s ease;
 		font-size: 0.9rem;
+		font-family: inherit;
 	}
 
 	.time-range-btn:hover {
-		border-color: #9c27b0;
-		background: rgba(156, 39, 176, 0.1);
+		border-color: var(--text-muted);
+		color: var(--text-primary);
 	}
 
 	.time-range-btn.active {
-		background: #9c27b0;
-		color: #ffffff;
-		border-color: #9c27b0;
+		background: var(--text-primary);
+		color: var(--bg-primary);
+		border-color: var(--text-primary);
 	}
 
 	.chart-wrapper {
@@ -239,7 +236,7 @@
 		top: 50%;
 		left: 50%;
 		transform: translate(-50%, -50%);
-		color: #888;
+		color: var(--text-muted);
 		font-size: 1.2rem;
 	}
 

@@ -1,6 +1,8 @@
 <script>
 	import { filterVisibleDevices } from "$lib/deviceFilter.js";
+	import { rmsToMagnitude } from "$lib/magnitude.js";
 	import { getDeviceColumnName, getQuotedColumn, getTableName } from "$lib/questdbHelpers.js";
+	import { magnitudeMode } from "$lib/stores.js";
 	import { createEventDispatcher, onMount } from "svelte";
 
 	const dispatch = createEventDispatcher();
@@ -14,9 +16,6 @@
 
 	async function fetchDevices() {
 		try {
-			console.log("Fetching available devices...");
-
-			// Fetch directly from API without caching
 			await fetchDevicesFromAPI();
 		} catch (err) {
 			console.error("Error in fetchDevices:", err);
@@ -28,7 +27,6 @@
 
 	async function fetchDevicesFromAPI() {
 		try {
-			// Determine device column and get distinct device IDs
 			const deviceColName = await getDeviceColumnName();
 			const deviceCol = getQuotedColumn(deviceColName);
 			const tableName = getTableName();
@@ -37,29 +35,18 @@
 
 			if (devicesResponse.ok) {
 				const devicesResult = await devicesResponse.json();
-				console.log("Devices result:", devicesResult);
 
 				if (devicesResult.dataset && devicesResult.dataset.length > 0) {
 					const allDevices = devicesResult.dataset.map((row) => row[0]).sort();
-					console.log("Found all devices (sorted):", allDevices);
-
-					// Filter out hidden devices
 					const freshDevices = filterVisibleDevices(allDevices);
-					console.log("Visible devices after filtering:", freshDevices);
-
 					devices = freshDevices;
 					error = null;
-
-					// Fetch current data for each device
 					await fetchDeviceData();
 				} else {
-					// No data found
-					console.log("No devices found in database");
 					error = "Something is wrong";
 					devices = [];
 				}
 			} else {
-				console.error("Failed to fetch devices");
 				error = "Something is wrong";
 				devices = [];
 			}
@@ -74,7 +61,6 @@
 
 	async function fetchDeviceData() {
 		try {
-			// Load settings from localStorage
 			const savedSettings = localStorage.getItem("enviroSyncSettings");
 			const settings = savedSettings
 				? JSON.parse(savedSettings)
@@ -94,19 +80,17 @@
 				const deviceColName = await getDeviceColumnName();
 				const deviceCol = getQuotedColumn(deviceColName);
 				const tableName = getTableName();
-				const query = `SELECT temp, humid, ts FROM ${tableName} WHERE ${deviceCol}='${deviceId}' ORDER BY ts DESC LIMIT 1`;
+				const query = `SELECT temp, humid, ts, rms, quake_flag FROM ${tableName} WHERE ${deviceCol}='${deviceId}' ORDER BY ts DESC LIMIT 1`;
 				const response = await fetch(`/api/questdb?query=${encodeURIComponent(query)}`);
 
 				if (response.ok) {
 					const result = await response.json();
 					if (result.dataset && result.dataset.length > 0) {
-						const [temp, humid, timestamp] = result.dataset[0];
-						// Treat database timestamp as already in local time (UTC+8)
+						const [temp, humid, timestamp, rms] = result.dataset[0];
 						const lastUpdate = new Date(timestamp);
 						const now = new Date();
 						const minutesSinceLastUpdate = (now - lastUpdate) / 1000 / 60;
 
-						// Determine status using localStorage settings
 						let status = "Normal";
 						if (minutesSinceLastUpdate > 5) {
 							status = "Offline";
@@ -125,23 +109,22 @@
 							}
 						}
 
-						const deviceData = {
+						return {
 							deviceId,
 							temperature: parseFloat(temp).toFixed(2),
 							humidity: parseFloat(humid).toFixed(1),
+							rms: rms !== null ? parseFloat(rms) : 0,
 							lastUpdate,
 							status,
 						};
-
-						return deviceData;
 					}
 				}
 
-				// Return fallback data if no real data
 				return {
 					deviceId,
 					temperature: "29.70",
 					humidity: "87.0",
+					rms: 0,
 					lastUpdate: new Date(),
 					status: "Offline",
 				};
@@ -163,29 +146,28 @@
 				deviceId,
 				temperature: "29.70",
 				humidity: "87.0",
+				rms: 0,
 				lastUpdate: new Date(),
 				status: "Offline",
 			};
 		});
 	}
 
-	// Get background color based on status
 	function getStatusColor(status) {
 		switch (status) {
 			case "Normal":
-				return "#333333";
+				return "var(--bg-card)";
 			case "Warning":
 				return "#dde26a";
 			case "Severe":
 				return "#ff0443";
 			case "Offline":
-				return "#a6a6a6";
+				return "var(--bg-secondary)";
 			default:
-				return "#333333";
+				return "var(--bg-card)";
 		}
 	}
 
-	// Check if device data is older than 5 minutes
 	function isDeviceDataStale(deviceId) {
 		const data = deviceData[deviceId];
 		if (!data || !data.lastUpdate) return true;
@@ -195,14 +177,19 @@
 		return data.lastUpdate < fiveMinutesAgo;
 	}
 
+	function formatRmsValue(rms) {
+		if ($magnitudeMode) {
+			return `${rmsToMagnitude(rms).toFixed(1)} Mag`;
+		}
+		return `${rms.toFixed(3)}g`;
+	}
+
 	function selectDevice(deviceId) {
 		dispatch("deviceSelected", { deviceId });
 	}
 
 	onMount(() => {
 		fetchDevices();
-
-		// Set up automatic refresh every 3 seconds for device list
 		const interval = setInterval(fetchDevices, 3000);
 		return () => clearInterval(interval);
 	});
@@ -242,6 +229,12 @@
 									{deviceData[deviceId]?.humidity || "??.?"}%
 								</div>
 							</div>
+
+							<div class="metric">
+								<div class="metric-value seismic">
+									{formatRmsValue(deviceData[deviceId]?.rms || 0)}
+								</div>
+							</div>
 						{/if}
 					</div>
 				</button>
@@ -253,7 +246,7 @@
 <style>
 	.device-selector {
 		padding: 0;
-		color: #fff;
+		color: var(--text-primary);
 	}
 
 	.loading {
@@ -268,8 +261,8 @@
 	.spinner {
 		width: 40px;
 		height: 40px;
-		border: 4px solid #333;
-		border-top: 4px solid #4a90e2;
+		border: 4px solid var(--border-color);
+		border-top: 4px solid var(--accent-blue);
 		border-radius: 50%;
 		animation: spin 1s linear infinite;
 	}
@@ -286,11 +279,11 @@
 	.error {
 		text-align: center;
 		padding: 2rem;
-		color: #ff6b6b;
+		color: var(--accent-red, #e65050);
 	}
 
 	.error button {
-		background: #4a90e2;
+		background: var(--accent-blue);
 		color: white;
 		border: none;
 		padding: 0.75rem 1.5rem;
@@ -302,7 +295,7 @@
 	}
 
 	.error button:hover {
-		background: #357abd;
+		opacity: 0.9;
 	}
 
 	.devices-grid {
@@ -313,8 +306,8 @@
 	}
 
 	.device-card {
-		background: #2d2d2d;
-		border: 1px solid #404040;
+		background: var(--bg-card);
+		border: 1px solid var(--border-color);
 		border-radius: 12px;
 		padding: 2.5rem;
 		cursor: pointer;
@@ -329,40 +322,27 @@
 	}
 
 	.device-card:hover {
-		border-color: #4a90e2;
-		background: #333;
+		border-color: var(--accent-blue);
 		transform: translateY(-2px);
-		box-shadow: 0 4px 20px rgba(74, 144, 226, 0.2);
+		box-shadow: 0 4px 20px rgba(57, 158, 230, 0.15);
 	}
 
 	.device-card.stale-data {
-		background: rgba(255, 255, 255, 0.95);
-		color: #333;
-		border-color: rgba(200, 200, 200, 0.8);
-	}
-
-	.device-card.stale-data:hover {
-		background: rgba(255, 255, 255, 1);
-		border-color: #999;
-		box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
-	}
-
-	.device-card.stale-data .device-header h3 {
-		color: #333;
+		opacity: 0.7;
 	}
 
 	.device-header h3 {
 		font-size: 1.8rem;
 		font-weight: 600;
 		margin: 0;
-		color: #fff;
-		text-align: center;
+		color: var(--text-primary);
+		text-align: left;
 	}
 
 	.device-metrics {
 		display: flex;
 		flex-direction: column;
-		gap: 1.5rem;
+		gap: 1rem;
 		align-items: center;
 	}
 
@@ -381,18 +361,23 @@
 	}
 
 	.metric-value.temperature {
-		color: #ffffff;
+		color: var(--text-primary);
 	}
 
 	.metric-value.humidity {
-		color: #ffffff;
+		color: var(--text-primary);
+	}
+
+	.metric-value.seismic {
+		color: var(--text-primary);
+		font-size: 2.4rem;
 	}
 
 	.offline-message {
 		font-size: 2.4rem;
 		font-weight: 700;
 		letter-spacing: -0.02em;
-		color: #000000;
+		color: var(--text-muted);
 		text-align: center;
 		width: 100%;
 	}

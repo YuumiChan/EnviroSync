@@ -12,8 +12,6 @@
 	let showAllEarthquake = false;
 	let showAllSevere = false;
 
-	// Group consecutive time-buckets into distinct earthquake events.
-	// If the gap between two buckets exceeds gapMs a new event is started.
 	function groupIntoEvents(dataset, gapMs = 10 * 60 * 1000) {
 		if (!dataset || dataset.length === 0) return [];
 
@@ -21,11 +19,8 @@
 		let cur = null;
 
 		for (const row of dataset) {
-			// DB timestamps are stored as local time; strip trailing Z so the browser
-			// does not re-interpret them as UTC and shift them again.
 			const time = new Date(String(row[0]).replace("Z", ""));
 			const rms = parseFloat(row[1]);
-			// Skip rows with invalid rms to avoid NaN poisoning the event's peakRms
 			if (isNaN(rms)) continue;
 
 			if (!cur || time.getTime() - cur.end.getTime() > gapMs) {
@@ -42,9 +37,7 @@
 	}
 
 	async function fetchNotifications() {
-		console.log("Notifications: fetchNotifications called");
 		try {
-			// Don't set loading=true after initial load to preserve scroll position
 			const isInitialLoad = severeEvents.length === 0 && earthquakeEvents.length === 0;
 			if (isInitialLoad) {
 				loading = true;
@@ -52,9 +45,7 @@
 			const deviceColName = await getDeviceColumnName();
 			const deviceCol = getQuotedColumn(deviceColName);
 			const tableName = getTableName();
-			console.log("Notifications: tableName =", tableName, "deviceCol =", deviceCol);
 
-			// Load settings from localStorage for thresholds
 			const savedSettings = localStorage.getItem("enviroSyncSettings");
 			const settings = savedSettings
 				? JSON.parse(savedSettings)
@@ -65,14 +56,11 @@
 						strongEarthquakeThreshold: 0.1,
 					};
 
-			// Exclude hidden devices (treat same as offline)
 			const hiddenIds = getHiddenDeviceIds();
 			const hiddenFilter = hiddenIds.length > 0 ? `AND ${deviceCol} NOT IN (${hiddenIds.map((id) => `'${id}'`).join(",")})` : "";
 
-			// Fetch severe status events using dynamic thresholds
 			const severeQuery = `SELECT ts, ${deviceCol} as device, temp, humid FROM ${tableName} WHERE (temp > ${settings.tempSevere} OR humid > ${settings.humidSevere}) ${hiddenFilter} AND ts > dateadd('d', -7, ${localNow()}) ORDER BY ts DESC LIMIT 50`;
 
-			// Fetch earthquake events: simple query for all quake_flag = 2
 			const earthquakeQuery = `
 				SELECT timestamp_floor('5m', ts) as bucket, MAX(rms) as peak_rms
 				FROM ${tableName}
@@ -81,14 +69,12 @@
 				ORDER BY bucket ASC
 			`;
 
-			console.log("Notifications earthquake query:", earthquakeQuery);
 			const [severeResponse, earthquakeResponse] = await Promise.all([fetch(`/api/questdb?query=${encodeURIComponent(severeQuery)}`), fetch(`/api/questdb?query=${encodeURIComponent(earthquakeQuery)}`)]);
 
 			if (severeResponse.ok) {
 				const result = await severeResponse.json();
 				if (result.dataset && result.dataset.length > 0) {
 					severeEvents = result.dataset.map(([ts, device, temp, humid]) => {
-						// Strip Z so local-time DB timestamp isn't shifted to UTC by the browser
 						const timestampStr = String(ts).replace("Z", "");
 						return {
 							time: new Date(timestampStr),
@@ -104,15 +90,12 @@
 
 			if (earthquakeResponse.ok) {
 				const result = await earthquakeResponse.json();
-				console.log("Notifications earthquake result:", result);
 				if (result.dataset && result.dataset.length > 0) {
 					const events = groupIntoEvents(result.dataset);
 
-					// Sort most recent first
 					events.sort((a, b) => b.start.getTime() - a.start.getTime());
 
 					earthquakeEvents = events.map((event) => {
-						// Determine intensity based on peak RMS thresholds
 						let intensity = "Weak";
 						if (event.peakRms >= settings.strongEarthquakeThreshold) {
 							intensity = "Strong";
@@ -163,9 +146,7 @@
 	}
 
 	onMount(() => {
-		console.log("Notifications page mounted");
 		fetchNotifications();
-		// Refresh every 30 seconds
 		const interval = setInterval(fetchNotifications, 30000);
 		return () => clearInterval(interval);
 	});
@@ -203,7 +184,7 @@
 								<span class="intensity-badge {event.intensity.toLowerCase()}">{event.intensity}</span>
 								<span class="event-time">{formatDateTime(event.time)}</span>
 							</div>
-							<div class="metric">Peak RMS: {event.rms}g</div>
+							<div class="metric">Peak Magnitude: {event.rms}g</div>
 							<div class="event-relative">{formatRelativeTime(event.time)}</div>
 						</div>
 					{/each}
@@ -261,12 +242,7 @@
 	.page-header h1 {
 		font-size: 2rem;
 		margin-bottom: 0.5rem;
-		color: #fff;
-	}
-
-	.subtitle {
-		color: #888;
-		font-size: 1rem;
+		color: var(--text-primary);
 	}
 
 	.loading {
@@ -276,13 +252,14 @@
 		justify-content: center;
 		min-height: 400px;
 		gap: 1rem;
+		color: var(--text-secondary);
 	}
 
 	.spinner {
 		width: 40px;
 		height: 40px;
-		border: 4px solid #333;
-		border-top: 4px solid #4a90e2;
+		border: 4px solid var(--border-color);
+		border-top: 4px solid var(--accent-blue);
 		border-radius: 50%;
 		animation: spin 1s linear infinite;
 	}
@@ -302,22 +279,18 @@
 	}
 
 	.notification-section {
-		background: rgba(0, 0, 0, 0.3);
+		background: var(--bg-overlay);
 		border-radius: 12px;
 		padding: 1.5rem;
 		border-left: 4px solid;
 	}
 
 	.notification-section.earthquake {
-		border-left-color: #9c27b0;
+		border-left-color: var(--accent-purple);
 	}
 
 	.notification-section.severe {
-		border-left-color: #ff0443;
-	}
-
-	.notification-section.offline {
-		border-left-color: #a6a6a6;
+		border-left-color: var(--accent-red, #e65050);
 	}
 
 	.section-header {
@@ -326,7 +299,7 @@
 		align-items: center;
 		margin-bottom: 1.5rem;
 		padding-bottom: 1rem;
-		border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+		border-bottom: 1px solid var(--border-color);
 	}
 
 	.section-header h2 {
@@ -335,7 +308,7 @@
 		gap: 0.5rem;
 		font-size: 1.3rem;
 		margin: 0;
-		color: #fff;
+		color: var(--text-primary);
 	}
 
 	.icon {
@@ -344,11 +317,12 @@
 	}
 
 	.count {
-		background: rgba(255, 255, 255, 0.1);
+		background: var(--bg-hover);
 		padding: 0.3rem 0.8rem;
 		border-radius: 20px;
 		font-weight: bold;
 		font-size: 0.9rem;
+		color: var(--text-primary);
 	}
 
 	.events-list {
@@ -360,12 +334,12 @@
 	.no-events {
 		text-align: center;
 		padding: 2rem;
-		color: #666;
+		color: var(--text-muted);
 		font-style: italic;
 	}
 
 	.event-item {
-		background: rgba(255, 255, 255, 0.05);
+		background: var(--bg-hover);
 		padding: 1rem;
 		border-radius: 8px;
 		display: flex;
@@ -375,12 +349,12 @@
 	}
 
 	.event-item:hover {
-		background: rgba(255, 255, 255, 0.08);
+		background: var(--bg-overlay);
 	}
 
 	.event-time {
 		font-size: 0.95rem;
-		color: #b0b0b0;
+		color: var(--text-secondary);
 		font-weight: 500;
 	}
 
@@ -391,18 +365,9 @@
 		flex-wrap: wrap;
 	}
 
-	.last-data {
-		display: flex;
-		align-items: center;
-		gap: 1rem;
-		flex-wrap: wrap;
-		padding-top: 0.3rem;
-		border-top: 1px dashed rgba(255, 255, 255, 0.1);
-	}
-
 	.device-badge {
-		background: rgba(74, 144, 226, 0.2);
-		color: #4a90e2;
+		background: rgba(57, 158, 230, 0.15);
+		color: var(--accent-blue);
 		padding: 0.3rem 0.8rem;
 		border-radius: 6px;
 		font-weight: 600;
@@ -418,51 +383,47 @@
 	}
 
 	.intensity-badge.weak {
-		background: rgba(76, 175, 80, 0.2);
-		color: #4caf50;
+		background: rgba(108, 191, 67, 0.15);
+		color: var(--accent-green);
 	}
 
 	.intensity-badge.moderate {
-		background: rgba(255, 152, 0, 0.2);
-		color: #ff9800;
+		background: rgba(250, 141, 62, 0.15);
+		color: var(--accent-orange);
 	}
 
 	.intensity-badge.strong {
-		background: rgba(244, 67, 54, 0.2);
-		color: #f44336;
+		background: rgba(230, 80, 80, 0.15);
+		color: var(--accent-red, #e65050);
 	}
 
 	.metric {
-		color: #888;
+		color: var(--text-muted);
 		font-size: 0.9rem;
 	}
 
 	.show-more-btn {
 		width: 100%;
 		padding: 0.75rem;
-		background: rgba(74, 144, 226, 0.1);
-		border: 1px solid rgba(74, 144, 226, 0.3);
-		color: #4a90e2;
+		background: rgba(57, 158, 230, 0.08);
+		border: 1px solid rgba(57, 158, 230, 0.25);
+		color: var(--accent-blue);
 		border-radius: 6px;
 		font-size: 0.9rem;
 		font-weight: 500;
 		cursor: pointer;
 		transition: all 0.2s;
+		font-family: inherit;
 	}
 
 	.show-more-btn:hover {
-		background: rgba(74, 144, 226, 0.2);
-		border-color: #4a90e2;
-	}
-
-	.offline-status {
-		color: #a6a6a6;
-		font-weight: 600;
+		background: rgba(57, 158, 230, 0.15);
+		border-color: var(--accent-blue);
 	}
 
 	.event-relative {
 		font-size: 0.85rem;
-		color: #666;
+		color: var(--text-muted);
 	}
 
 	@media (max-width: 768px) {
@@ -482,12 +443,6 @@
 			flex-direction: column;
 			align-items: flex-start;
 			gap: 0.5rem;
-		}
-
-		.last-data {
-			flex-direction: column;
-			align-items: flex-start;
-			gap: 0.3rem;
 		}
 	}
 </style>

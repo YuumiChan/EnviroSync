@@ -1,6 +1,8 @@
 <script>
 	import { localNow } from "$lib/config.js";
+	import { rmsToMagnitude } from "$lib/magnitude.js";
 	import { getTableName } from "$lib/questdbHelpers.js";
+	import { magnitudeMode } from "$lib/stores.js";
 	import { Chart, registerables } from "chart.js";
 	import "chartjs-adapter-date-fns";
 	import { createEventDispatcher, onDestroy, onMount } from "svelte";
@@ -117,14 +119,18 @@
 
 	function getChartConfig(environmentalData, timeConfig) {
 		const timestamps = environmentalData.map((d) => d.timestamp);
+		const useMag = $magnitudeMode;
 
 		if (rmsMode) {
-			const rmsValues = environmentalData.map((d) => d.rms);
+			const rmsValues = useMag
+				? environmentalData.map((d) => d.rms !== null ? rmsToMagnitude(d.rms) : null)
+				: environmentalData.map((d) => d.rms);
+			const label = useMag ? "Magnitude" : "RMS (g)";
 			return {
 				labels: timestamps,
 				datasets: [
 					{
-						label: "RMS (g)",
+						label: label,
 						data: rmsValues,
 						borderColor: "#9b59b6",
 						backgroundColor: "rgba(155, 89, 182, 0.1)",
@@ -150,13 +156,13 @@
 					},
 					y: {
 						beginAtZero: true,
-						max: 1.0,
+						max: useMag ? undefined : 1.0,
 						grid: { color: "rgba(68, 68, 68, 0.3)", lineWidth: 1 },
 						ticks: {
 							color: "#9b59b6",
 							font: { size: 11 },
 							callback: function (value) {
-								return value.toFixed(2) + "g";
+								return useMag ? value.toFixed(1) : value.toFixed(2) + "g";
 							},
 						},
 					},
@@ -238,6 +244,7 @@
 
 	let previousDevice = null;
 	let previousRmsMode = rmsMode;
+	let previousMagnitudeMode = false;
 
 	$: if (selectedDevice && chart && selectedDevice !== previousDevice) {
 		if (updateTimeout) clearTimeout(updateTimeout);
@@ -253,6 +260,11 @@
 	$: if (chart && rmsMode !== previousRmsMode) {
 		previousRmsMode = rmsMode;
 		updateChart();
+	}
+
+	$: if (chart && $magnitudeMode !== previousMagnitudeMode) {
+		previousMagnitudeMode = $magnitudeMode;
+		if (rmsMode) updateChart();
 	}
 
 	onMount(async () => {
@@ -313,7 +325,7 @@
 		{#if onBackToDevices}
 			<button class="back-button" on:click={onBackToDevices}>&larr; Back to Devices</button>
 		{:else}
-			<h2>{rmsMode ? "RMS Magnitude" : "Temperature & Humidity"}</h2>
+			<h2>{rmsMode ? ($magnitudeMode ? "Magnitude" : "RMS") : "Temperature & Humidity"}</h2>
 		{/if}
 		<div class="time-range-buttons">
 			<button class="time-range-btn" class:active={selectedTimeRange === "day"} on:click={() => changeTimeRange("day")}> Last 24 Hours </button>
@@ -329,10 +341,10 @@
 
 <style>
 	.chart-container {
-		background: rgba(0, 0, 0, 0.3);
+		background: var(--bg-overlay);
 		border-radius: 12px;
 		padding: 1.5rem;
-		border: 1px solid rgba(74, 144, 226, 0.2);
+		border: 1px solid var(--border-color);
 		margin-bottom: 2rem;
 		width: 100%;
 	}
@@ -348,25 +360,25 @@
 
 	h2 {
 		font-size: 1.5rem;
-		color: #ffffff;
+		color: var(--text-primary);
 		margin: 0;
 	}
 
 	.back-button {
 		background: none;
-		border: 1px solid #404040;
-		color: #888;
+		border: 1px solid var(--border-color);
+		color: var(--text-muted);
 		padding: 0.5rem 1rem;
 		border-radius: 6px;
 		cursor: pointer;
 		font-size: 0.9rem;
 		transition: all 0.2s ease;
+		font-family: inherit;
 	}
 
 	.back-button:hover {
-		border-color: #4a90e2;
-		color: #4a90e2;
-		background: rgba(74, 144, 226, 0.1);
+		border-color: var(--text-muted);
+		color: var(--text-primary);
 	}
 
 	.time-range-buttons {
@@ -376,24 +388,25 @@
 
 	.time-range-btn {
 		padding: 0.5rem 1rem;
-		border: 1px solid rgba(74, 144, 226, 0.3);
-		background: rgba(0, 0, 0, 0.3);
-		color: #4a90e2;
+		border: 1px solid var(--border-color);
+		background: var(--bg-overlay);
+		color: var(--text-secondary);
 		border-radius: 6px;
 		cursor: pointer;
 		transition: all 0.2s ease;
 		font-size: 0.9rem;
+		font-family: inherit;
 	}
 
 	.time-range-btn:hover {
-		border-color: #4a90e2;
-		background: rgba(74, 144, 226, 0.1);
+		border-color: var(--text-muted);
+		color: var(--text-primary);
 	}
 
 	.time-range-btn.active {
-		background: #4a90e2;
-		color: #ffffff;
-		border-color: #4a90e2;
+		background: var(--text-primary);
+		color: var(--bg-primary);
+		border-color: var(--text-primary);
 	}
 
 	.chart-wrapper {

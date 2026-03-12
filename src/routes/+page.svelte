@@ -95,6 +95,8 @@
 		width: 100%;
 		max-height: 500px;
 		min-height: 400px;
+		overflow: hidden;
+		position: relative;
 	}
 
 	.metrics-section {
@@ -119,17 +121,19 @@
 
 	@media (max-width: 768px) {
 		.dashboard-content {
-			gap: 1.5rem;
+			gap: 1rem;
 		}
 
 		.chart-section {
-			max-height: 350px;
-			min-height: 300px;
+			max-height: none;
+			min-height: 250px;
+			overflow: visible;
 		}
 
 		.metrics-section {
 			grid-template-columns: 1fr;
 			gap: 0.75rem;
+			margin-top: 0;
 		}
 	}
 </style>
