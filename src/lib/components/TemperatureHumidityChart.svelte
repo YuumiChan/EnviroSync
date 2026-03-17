@@ -153,7 +153,7 @@
 					},
 					y: {
 						beginAtZero: true,
-						max: useMag ? undefined : 1.0,
+						max: useMag ? 10 : 1.0,
 						grid: { color: "rgba(68, 68, 68, 0.3)", lineWidth: 1 },
 						ticks: {
 							color: "#9b59b6",

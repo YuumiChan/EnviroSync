@@ -95,7 +95,7 @@
 		{#if status === "Offline"}
 			<div class="metric-value offline">Offline</div>
 		{:else}
-			<div class="metric-value temperature">{temperature}&deg;C</div>
+			<div class="metric-value">{temperature}&deg;C</div>
 			<div class="metric-average">Avg: {temperatureAvg}&deg;C</div>
 		{/if}
 	</div>
@@ -104,7 +104,7 @@
 		{#if status === "Offline"}
 			<div class="metric-value offline">&mdash;</div>
 		{:else}
-			<div class="metric-value humidity">{humidity}%</div>
+			<div class="metric-value">{humidity}%</div>
 			<div class="metric-average">Avg: {humidityAvg}%</div>
 		{/if}
 	</div>
@@ -149,6 +149,10 @@
 
 	.metric-value.offline {
 		color: var(--text-muted);
+	}
+
+	.metric-value.rms {
+		color: #9b59b6;
 	}
 
 	.metric-average {

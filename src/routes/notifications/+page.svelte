@@ -40,29 +40,37 @@
 	}
 
 	/**
-	 * Group severe condition rows into ranges.
-	 * Consecutive rows within gapMs are merged into a single range.
+	 * Group severe condition rows into ranges per device.
+	 * Consecutive rows for the same device within gapMs are merged into a single range.
 	 * If the latest row is within recentMs of now, the end is marked "now".
 	 */
-	function groupSevereIntoRanges(rows, gapMs = 10 * 60 * 1000, recentMs = 5 * 60 * 1000) {
+	function groupSevereIntoRanges(rows, gapMs = 2 * 60 * 1000, recentMs = 5 * 60 * 1000) {
 		if (!rows || rows.length === 0) return [];
 
-		// Sort ascending by time
-		const sorted = [...rows].sort((a, b) => a.time.getTime() - b.time.getTime());
+		// Sort ascending by time, then by device
+		const sorted = [...rows].sort((a, b) => a.time.getTime() - b.time.getTime() || a.device.localeCompare(b.device));
+
+		// Group per device separately
+		const byDevice = new Map();
+		for (const row of sorted) {
+			if (!byDevice.has(row.device)) byDevice.set(row.device, []);
+			byDevice.get(row.device).push(row);
+		}
 
 		const ranges = [];
-		let cur = null;
-
-		for (const row of sorted) {
-			if (!cur || row.time.getTime() - cur.end.getTime() > gapMs || row.device !== cur.device) {
-				if (cur) ranges.push(cur);
-				cur = { start: row.time, end: row.time, device: row.device, peakValue: row.value };
-			} else {
-				cur.end = row.time;
-				cur.peakValue = Math.max(cur.peakValue, row.value);
+		for (const [device, deviceRows] of byDevice) {
+			let cur = null;
+			for (const row of deviceRows) {
+				if (!cur || row.time.getTime() - cur.end.getTime() > gapMs) {
+					if (cur) ranges.push(cur);
+					cur = { start: row.time, end: row.time, device, peakValue: row.value };
+				} else {
+					cur.end = row.time;
+					cur.peakValue = Math.max(cur.peakValue, row.value);
+				}
 			}
+			if (cur) ranges.push(cur);
 		}
-		if (cur) ranges.push(cur);
 
 		const now = new Date();
 		for (const range of ranges) {
@@ -215,7 +223,6 @@
 	onMount(() => {
 		fetchNotifications();
 		const interval = setInterval(fetchNotifications, 30000);
-		// Retry sooner if initial load fails
 		const retryTimeout = setTimeout(() => {
 			if (tempRanges.length === 0 && humidRanges.length === 0 && earthquakeEvents.length === 0) {
 				fetchNotifications();
@@ -248,13 +255,12 @@
 					</svg>
 					Earthquake
 				</h2>
-				<span class="count">{earthquakeEvents.length}</span>
 			</div>
 			<div class="events-list">
 				{#if earthquakeEvents.length === 0}
 					<div class="no-events">No earthquake events in the last 7 days</div>
 				{:else}
-					{#each showAllEarthquake ? earthquakeEvents : earthquakeEvents.slice(0, 3) as event}
+					{#each showAllEarthquake ? earthquakeEvents : earthquakeEvents.slice(0, 5) as event}
 						<div class="event-item">
 							<div class="event-details">
 								<span class="intensity-badge {event.intensity.toLowerCase()}">{event.intensity}</span>
@@ -264,9 +270,9 @@
 							<div class="event-relative">{formatRelativeTime(event.time)}</div>
 						</div>
 					{/each}
-					{#if earthquakeEvents.length > 3}
+					{#if earthquakeEvents.length > 5}
 						<button class="show-more-btn" on:click={() => (showAllEarthquake = !showAllEarthquake)}>
-							{showAllEarthquake ? "Show Less" : `Show More (${earthquakeEvents.length - 3} more)`}
+							{showAllEarthquake ? "Show Less" : `Show More (${earthquakeEvents.length - 5} more)`}
 						</button>
 					{/if}
 				{/if}
@@ -282,27 +288,25 @@
 					</svg>
 					Temperature
 				</h2>
-				<span class="count">{tempRanges.length}</span>
 			</div>
 			<div class="events-list">
 				{#if tempRanges.length === 0}
 					<div class="no-events">No severe temperature in the last 7 days</div>
 				{:else}
-					{#each showAllTemp ? tempRanges : tempRanges.slice(0, 3) as range}
+					{#each showAllTemp ? tempRanges : tempRanges.slice(0, 5) as range}
 						<div class="event-item">
 							<div class="event-details">
 								<span class="device-badge">{range.device}</span>
-								<span class="metric">Peak: {range.peakValue.toFixed(2)}°C</span>
+								<span class="event-time">
+									{formatShortDateTime(range.start)} — {range.isOngoing ? "now" : formatShortDateTime(range.end)}
+								</span>
 							</div>
-							<div class="event-time">
-								{formatShortDateTime(range.start)} — {range.isOngoing ? "now" : formatShortDateTime(range.end)}
-							</div>
-							<div class="event-relative">{range.isOngoing ? "Ongoing" : formatRelativeTime(range.start)}</div>
+							<div class="metric">Peak: {range.peakValue.toFixed(2)}°C</div>
 						</div>
 					{/each}
-					{#if tempRanges.length > 3}
+					{#if tempRanges.length > 5}
 						<button class="show-more-btn" on:click={() => (showAllTemp = !showAllTemp)}>
-							{showAllTemp ? "Show Less" : `Show More (${tempRanges.length - 3} more)`}
+							{showAllTemp ? "Show Less" : `Show More (${tempRanges.length - 5} more)`}
 						</button>
 					{/if}
 				{/if}
@@ -318,27 +322,25 @@
 					</svg>
 					Humidity
 				</h2>
-				<span class="count">{humidRanges.length}</span>
 			</div>
 			<div class="events-list">
 				{#if humidRanges.length === 0}
 					<div class="no-events">No severe humidity in the last 7 days</div>
 				{:else}
-					{#each showAllHumid ? humidRanges : humidRanges.slice(0, 3) as range}
+					{#each showAllHumid ? humidRanges : humidRanges.slice(0, 5) as range}
 						<div class="event-item">
 							<div class="event-details">
 								<span class="device-badge">{range.device}</span>
-								<span class="metric">Peak: {range.peakValue.toFixed(1)}%</span>
+								<span class="event-time">
+									{formatShortDateTime(range.start)} — {range.isOngoing ? "now" : formatShortDateTime(range.end)}
+								</span>
 							</div>
-							<div class="event-time">
-								{formatShortDateTime(range.start)} — {range.isOngoing ? "now" : formatShortDateTime(range.end)}
-							</div>
-							<div class="event-relative">{range.isOngoing ? "Ongoing" : formatRelativeTime(range.start)}</div>
+							<div class="metric">Peak: {range.peakValue.toFixed(1)}%</div>
 						</div>
 					{/each}
-					{#if humidRanges.length > 3}
+					{#if humidRanges.length > 5}
 						<button class="show-more-btn" on:click={() => (showAllHumid = !showAllHumid)}>
-							{showAllHumid ? "Show Less" : `Show More (${humidRanges.length - 3} more)`}
+							{showAllHumid ? "Show Less" : `Show More (${humidRanges.length - 5} more)`}
 						</button>
 					{/if}
 				{/if}
@@ -431,15 +433,6 @@
 	.icon {
 		width: 24px;
 		height: 24px;
-	}
-
-	.count {
-		background: var(--bg-hover);
-		padding: 0.3rem 0.8rem;
-		border-radius: 20px;
-		font-weight: bold;
-		font-size: 0.9rem;
-		color: var(--text-primary);
 	}
 
 	.events-list {

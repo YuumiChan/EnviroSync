@@ -475,6 +475,7 @@
 			// Merged settings for localStorage backwards compatibility
 			const mergedSettings = { ...sharedSettings, ...perUserSettings };
 			localStorage.setItem("enviroSyncSettings", JSON.stringify(mergedSettings));
+			localStorage.setItem("enviroSyncSharedSettings", JSON.stringify(sharedSettings));
 
 			// Update the in-memory stores so other components reflect the change immediately
 			magnitudeModeStore.set(magnitudeMode);
