@@ -43,7 +43,8 @@
 			})
 			.then((data) => {
 				if (data && data.settings) {
-					localStorage.setItem("enviroSyncSettings", JSON.stringify(data.settings));
+					const existing = JSON.parse(localStorage.getItem("enviroSyncSettings") || "{}");
+					localStorage.setItem("enviroSyncSettings", JSON.stringify({ ...existing, ...data.settings }));
 					magnitudeMode.set(!!data.settings.magnitudeMode);
 					darkMode.set(!!data.settings.darkMode);
 				}

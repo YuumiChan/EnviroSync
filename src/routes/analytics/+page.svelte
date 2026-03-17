@@ -1,5 +1,4 @@
 <script>
-	import ConnectionStatus from "$lib/components/ConnectionStatus.svelte";
 	import { localNow } from "$lib/config.js";
 	import { getHiddenDeviceIds } from "$lib/deviceFilter.js";
 	import { rmsToMagnitude } from "$lib/magnitude.js";
@@ -197,7 +196,7 @@
 			if (!byDevice[point.device]) byDevice[point.device] = [];
 			byDevice[point.device].push(point);
 		}
-		const maxPoints = 500;
+		const maxPoints = 200;
 		for (const device in byDevice) {
 			const arr = byDevice[device];
 			if (arr.length > maxPoints) {
@@ -213,7 +212,26 @@
 		const deviceCol = getQuotedColumn(deviceColName);
 		const tableName = getTableName();
 		const timeCondition = buildTimeCondition(filter, startDate, startTime, endDate, endTime);
-		const query = `SELECT ts, ${deviceCol} as device, temp, humid, rms FROM ${tableName} WHERE 1=1 ${timeCondition} ORDER BY ts ASC`;
+
+		// Server-side downsampling: compute SAMPLE BY interval to target ~200 points
+		const selectedOpt = filterOptions.find((f) => f.value === filter);
+		let sampleClause = "";
+		if (selectedOpt && selectedOpt.hours && selectedOpt.hours > 24) {
+			const targetPoints = 200;
+			const sampleMinutes = Math.max(1, Math.floor((selectedOpt.hours * 60) / targetPoints));
+			sampleClause = `SAMPLE BY ${sampleMinutes}m FILL(null)`;
+		} else if (filter === "all") {
+			// For 'all time', use 1-hour sampling
+			sampleClause = "SAMPLE BY 1h FILL(null)";
+		}
+
+		let query;
+		if (sampleClause) {
+			query = `SELECT ts, ${deviceCol} as device, avg(temp) as temp, avg(humid) as humid, avg(rms) as rms FROM ${tableName} WHERE 1=1 ${timeCondition} ${sampleClause} ORDER BY ts ASC`;
+		} else {
+			query = `SELECT ts, ${deviceCol} as device, temp, humid, rms FROM ${tableName} WHERE 1=1 ${timeCondition} ORDER BY ts ASC`;
+		}
+
 		try {
 			const response = await fetch(`/api/questdb?query=${encodeURIComponent(query)}`);
 			if (response.ok) {
@@ -238,11 +256,19 @@
 	}
 
 	// ── Chart rendering ────────────────────────────────────────────
-	function getChartOptions(title, chartId, gaps) {
+	function getChartOptions(title, chartId, gaps, metric) {
 		const textColor = getCSSVar("--text-primary") || "#5c6166";
 		const mutedColor = getCSSVar("--text-muted") || "#8a9199";
 		const rawMuted = mutedColor.startsWith("#") ? mutedColor : "#888888";
 		const gridColor = hexToRgba(rawMuted, 0.15);
+
+		const useMag = $magnitudeMode;
+		let yMax = undefined;
+		if (metric === "temp" || metric === "humid") {
+			yMax = 100;
+		} else if (metric === "rms") {
+			yMax = useMag ? 10 : 1.0;
+		}
 
 		return {
 			responsive: true,
@@ -301,6 +327,8 @@
 					grid: { color: gridColor },
 				},
 				y: {
+					beginAtZero: true,
+					max: yMax,
 					ticks: {
 						color: mutedColor,
 						font: { size: 10 },
@@ -334,7 +362,7 @@
 		return {
 			type: "line",
 			data: { datasets },
-			options: getChartOptions(title, chartId, gaps),
+			options: getChartOptions(title, chartId, gaps, metric),
 		};
 	}
 
@@ -709,10 +737,6 @@
 	<div>
 		<h1 class="dashboard-title">Analytics</h1>
 	</div>
-
-	<div class="user-info">
-		<ConnectionStatus />
-	</div>
 </div>
 
 <div class="controls-section">
@@ -861,24 +885,8 @@
 							<div class="stat-group">
 								<h4>Earthquake Detection</h4>
 								<div class="stat-row">
-									<span class="stat-label">Max Magnitude:</span>
-									<span class="stat-value small">{device.maxRms}g</span>
-								</div>
-							</div>
-
-							<div class="stat-group">
-								<h4>Records</h4>
-								<div class="stat-row">
-									<span class="stat-label">Total:</span>
-									<span class="stat-value">{device.totalRecords.toLocaleString()}</span>
-								</div>
-								<div class="stat-row">
-									<span class="stat-label">First:</span>
-									<span class="stat-value small">{device.firstRecord}</span>
-								</div>
-								<div class="stat-row">
-									<span class="stat-label">Last:</span>
-									<span class="stat-value small">{device.lastRecord}</span>
+									<span class="stat-label">{$magnitudeMode ? "Max Magnitude:" : "Max RMS:"}</span>
+									<span class="stat-value small">{$magnitudeMode ? rmsToMagnitude(parseFloat(device.maxRms)).toFixed(1) + " Mag" : device.maxRms + "g"}</span>
 								</div>
 							</div>
 						</div>
@@ -932,24 +940,9 @@
 										<td class="value-cell">{rightDevice ? rightDevice.avgHumid : "No Data"}</td>
 									</tr>
 									<tr class="section-separator">
-										<td class="metric-cell">Max Magnitude (g)</td>
-										<td class="value-cell">{device.maxRms}</td>
-										<td class="value-cell">{rightDevice ? rightDevice.maxRms : "No Data"}</td>
-									</tr>
-									<tr class="section-separator">
-										<td class="metric-cell">Total Records</td>
-										<td class="value-cell">{device.totalRecords.toLocaleString()}</td>
-										<td class="value-cell">{rightDevice ? rightDevice.totalRecords.toLocaleString() : "No Data"}</td>
-									</tr>
-									<tr>
-										<td class="metric-cell">First Record</td>
-										<td class="value-cell small">{device.firstRecord}</td>
-										<td class="value-cell small">{rightDevice ? rightDevice.firstRecord : "No Data"}</td>
-									</tr>
-									<tr>
-										<td class="metric-cell">Last Record</td>
-										<td class="value-cell small">{device.lastRecord}</td>
-										<td class="value-cell small">{rightDevice ? rightDevice.lastRecord : "No Data"}</td>
+										<td class="metric-cell">{$magnitudeMode ? "Max Magnitude" : "Max RMS (g)"}</td>
+										<td class="value-cell">{$magnitudeMode ? rmsToMagnitude(parseFloat(device.maxRms)).toFixed(1) + " Mag" : device.maxRms + "g"}</td>
+										<td class="value-cell">{rightDevice ? ($magnitudeMode ? rmsToMagnitude(parseFloat(rightDevice.maxRms)).toFixed(1) + " Mag" : rightDevice.maxRms + "g") : "No Data"}</td>
 									</tr>
 								</tbody>
 							</table>
@@ -1327,7 +1320,7 @@
 	.analytics-content {
 		background: var(--bg-overlay);
 		border-radius: 12px;
-		padding: 2rem;
+		padding: 1.5rem;
 		border: 1px solid var(--border-color);
 		transition: all 0.3s ease;
 	}
@@ -1335,15 +1328,15 @@
 	.analytics-content.compare-mode {
 		display: grid;
 		grid-template-columns: repeat(2, 1fr);
-		gap: 1.5rem;
-		padding: 1.5rem;
+		gap: 1rem;
+		padding: 1rem;
 	}
 
 	.device-analytics-card {
 		background: var(--bg-card);
 		border-radius: 8px;
-		padding: 1.5rem;
-		margin-bottom: 1.5rem;
+		padding: 1rem;
+		margin-bottom: 1rem;
 		border: 1px solid var(--border-color);
 	}
 
@@ -1357,24 +1350,24 @@
 
 	.device-analytics-card h3 {
 		color: var(--text-primary);
-		margin-bottom: 1.5rem;
-		font-size: 1.5rem;
+		margin-bottom: 1rem;
+		font-size: 1.3rem;
 	}
 
 	.compare-card h3 {
-		font-size: 1.2rem;
-		margin-bottom: 1rem;
+		font-size: 1.1rem;
+		margin-bottom: 0.75rem;
 	}
 
 	.stats-grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-		gap: 1.5rem;
+		grid-template-columns: repeat(3, 1fr);
+		gap: 1rem;
 	}
 
-	@media (min-width: 1200px) {
+	@media (max-width: 900px) {
 		.stats-grid {
-			grid-template-columns: repeat(4, 1fr);
+			grid-template-columns: 1fr;
 		}
 	}
 
@@ -1450,15 +1443,15 @@
 	/* ── Stat groups ────────────────────────────────────────────── */
 	.stat-group {
 		background: var(--bg-overlay);
-		padding: 1rem;
+		padding: 0.75rem;
 		border-radius: 6px;
 		border: 1px solid var(--border-color);
 	}
 
 	.stat-group h4 {
 		color: var(--text-secondary);
-		margin-bottom: 1rem;
-		font-size: 1rem;
+		margin-bottom: 0.5rem;
+		font-size: 0.95rem;
 		text-align: center;
 	}
 
@@ -1466,7 +1459,7 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		padding: 0.5rem 0;
+		padding: 0.35rem 0;
 		border-bottom: 1px solid var(--bg-hover);
 	}
 

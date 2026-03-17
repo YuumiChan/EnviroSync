@@ -61,20 +61,21 @@
 
 	async function fetchDeviceData() {
 		try {
-			const savedSettings = localStorage.getItem("enviroSyncSettings");
-			const settings = savedSettings
-				? JSON.parse(savedSettings)
-				: {
-						tempNormalMin: 18,
-						tempNormalMax: 35,
-						tempSevere: 40,
-						humidNormalMin: 30,
-						humidNormalMax: 80,
-						humidSevere: 90,
-						rmsEarthquakeThreshold: 0.05,
-						weakEarthquakeThreshold: 0.01,
-						strongEarthquakeThreshold: 0.1,
-					};
+			const sharedRaw = localStorage.getItem("enviroSyncSharedSettings");
+			const legacyRaw = localStorage.getItem("enviroSyncSettings");
+			const shared = sharedRaw ? JSON.parse(sharedRaw) : {};
+			const legacy = legacyRaw ? JSON.parse(legacyRaw) : {};
+			const settings = {
+				tempNormalMin: shared.tempNormalMin ?? legacy.tempNormalMin ?? 18,
+				tempNormalMax: shared.tempNormalMax ?? legacy.tempNormalMax ?? 35,
+				tempSevere: shared.tempSevere ?? legacy.tempSevere ?? 40,
+				humidNormalMin: shared.humidNormalMin ?? legacy.humidNormalMin ?? 30,
+				humidNormalMax: shared.humidNormalMax ?? legacy.humidNormalMax ?? 80,
+				humidSevere: shared.humidSevere ?? legacy.humidSevere ?? 90,
+				rmsEarthquakeThreshold: shared.rmsEarthquakeThreshold ?? legacy.rmsEarthquakeThreshold ?? 0.05,
+				weakEarthquakeThreshold: shared.weakEarthquakeThreshold ?? legacy.weakEarthquakeThreshold ?? 0.01,
+				strongEarthquakeThreshold: shared.strongEarthquakeThreshold ?? legacy.strongEarthquakeThreshold ?? 0.1,
+			};
 
 			const promises = devices.map(async (deviceId) => {
 				const deviceColName = await getDeviceColumnName();
@@ -92,20 +93,20 @@
 						const minutesSinceLastUpdate = (now - lastUpdate) / 1000 / 60;
 
 						let status = "Normal";
-						if (minutesSinceLastUpdate > 5) {
+						let severeLabels = [];
+						if (minutesSinceLastUpdate > 30) {
 							status = "Offline";
 						} else {
 							const t = parseFloat(temp);
 							const h = parseFloat(humid);
-							const tempNormal = t >= settings.tempNormalMin && t <= settings.tempNormalMax;
-							const humidNormal = h >= settings.humidNormalMin && h <= settings.humidNormalMax;
+							const r = rms !== null ? parseFloat(rms) : 0;
 
-							if (tempNormal && humidNormal) {
-								status = "Normal";
-							} else if (t > settings.tempSevere || h > settings.humidSevere) {
+							if (t > settings.tempSevere) severeLabels.push("TEMP");
+							if (h > settings.humidSevere) severeLabels.push("HUMI");
+							if (r >= (settings.strongEarthquakeThreshold || 0.1)) severeLabels.push("SIES");
+
+							if (severeLabels.length > 0) {
 								status = "Severe";
-							} else {
-								status = "Warning";
 							}
 						}
 
@@ -116,6 +117,7 @@
 							rms: rms !== null ? parseFloat(rms) : 0,
 							lastUpdate,
 							status,
+							severeLabels,
 						};
 					}
 				}
@@ -149,6 +151,7 @@
 				rms: 0,
 				lastUpdate: new Date(),
 				status: "Offline",
+				severeLabels: [],
 			};
 		});
 	}
@@ -157,8 +160,6 @@
 		switch (status) {
 			case "Normal":
 				return "var(--bg-card)";
-			case "Warning":
-				return "#dde26a";
 			case "Severe":
 				return "#ff0443";
 			case "Offline":
@@ -173,8 +174,8 @@
 		if (!data || !data.lastUpdate) return true;
 
 		const now = new Date();
-		const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
-		return data.lastUpdate < fiveMinutesAgo;
+		const thirtyMinutesAgo = new Date(now.getTime() - 30 * 60 * 1000);
+		return data.lastUpdate < thirtyMinutesAgo;
 	}
 
 	function formatRmsValue(rms) {
@@ -218,25 +219,19 @@
 						{#if deviceData[deviceId]?.status === "Offline"}
 							<div class="offline-message">Offline</div>
 						{:else}
-							<div class="metric">
-								<div class="metric-value temperature">
-									{deviceData[deviceId]?.temperature || "??.??"}°C
-								</div>
-							</div>
-
-							<div class="metric">
-								<div class="metric-value humidity">
-									{deviceData[deviceId]?.humidity || "??.?"}%
-								</div>
-							</div>
-
-							<div class="metric">
-								<div class="metric-value seismic">
-									{formatRmsValue(deviceData[deviceId]?.rms || 0)}
-								</div>
-							</div>
+							<div class="metric-value">{deviceData[deviceId]?.temperature || "??.??"}°C</div>
+							<div class="metric-value">{deviceData[deviceId]?.humidity || "??.?"}%</div>
+							<div class="metric-value">{formatRmsValue(deviceData[deviceId]?.rms || 0)}</div>
 						{/if}
 					</div>
+
+					{#if deviceData[deviceId]?.severeLabels?.length > 0}
+						<div class="severe-labels">
+							{#each deviceData[deviceId].severeLabels as label}
+								<span class="severe-tag">{label}</span>
+							{/each}
+						</div>
+					{/if}
 				</button>
 			{/each}
 		</div>
@@ -300,8 +295,8 @@
 
 	.devices-grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-		gap: 2rem;
+		grid-template-columns: repeat(3, 1fr);
+		gap: 1.5rem;
 		margin-top: 2rem;
 	}
 
@@ -309,7 +304,7 @@
 		background: var(--bg-card);
 		border: 1px solid var(--border-color);
 		border-radius: 12px;
-		padding: 2.5rem;
+		padding: 1.5rem;
 		cursor: pointer;
 		transition: all 0.3s ease;
 		text-align: left;
@@ -317,8 +312,6 @@
 		font-family: inherit;
 		display: flex;
 		flex-direction: column;
-		gap: 1.5rem;
-		min-height: 200px;
 	}
 
 	.device-card:hover {
@@ -332,66 +325,64 @@
 	}
 
 	.device-header h3 {
-		font-size: 1.8rem;
+		font-size: 1.4rem;
 		font-weight: 600;
-		margin: 0;
+		margin: 0 0 1rem 0;
 		color: var(--text-primary);
-		text-align: left;
 	}
 
 	.device-metrics {
 		display: flex;
 		flex-direction: column;
-		gap: 1rem;
 		align-items: center;
-	}
-
-	.metric {
-		display: flex;
-		align-items: center;
-		gap: 1.5rem;
-		justify-content: center;
-		width: 100%;
+		gap: 0.25rem;
+		flex: 1;
 	}
 
 	.metric-value {
-		font-size: 2.4rem;
+		font-size: 1.8rem;
 		font-weight: 700;
-		letter-spacing: -0.02em;
-	}
-
-	.metric-value.temperature {
 		color: var(--text-primary);
-	}
-
-	.metric-value.humidity {
-		color: var(--text-primary);
-	}
-
-	.metric-value.seismic {
-		color: var(--text-primary);
-		font-size: 2.4rem;
 	}
 
 	.offline-message {
-		font-size: 2.4rem;
+		font-size: 1.8rem;
 		font-weight: 700;
-		letter-spacing: -0.02em;
 		color: var(--text-muted);
 		text-align: center;
-		width: 100%;
+		padding: 1rem 0;
 	}
 
-	@media (max-width: 768px) {
+	.severe-labels {
+		display: flex;
+		gap: 0.5rem;
+		flex-wrap: wrap;
+		margin-top: 0.75rem;
+		padding-top: 0.75rem;
+		border-top: 1px solid rgba(255, 255, 255, 0.15);
+	}
+
+	.severe-tag {
+		background: rgba(255, 255, 255, 0.25);
+		color: #fff;
+		font-size: 0.8rem;
+		font-weight: 700;
+		padding: 0.25rem 0.75rem;
+		border-radius: 4px;
+		letter-spacing: 0.05em;
+		flex: 1;
+		text-align: center;
+	}
+
+	@media (max-width: 900px) {
 		.devices-grid {
 			grid-template-columns: 1fr;
-			gap: 1.5rem;
+			gap: 1rem;
 			margin-top: 1rem;
 		}
 
 		.device-card {
-			padding: 2rem;
-			min-height: 180px;
+			padding: 1.25rem;
 		}
 	}
 </style>

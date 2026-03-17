@@ -1,5 +1,4 @@
 <script>
-	import ConnectionStatus from "$lib/components/ConnectionStatus.svelte";
 	import DeviceSelector from "$lib/components/DeviceSelector.svelte";
 	import MetricCards from "$lib/components/MetricCards.svelte";
 	import TemperatureHumidityChart from "$lib/components/TemperatureHumidityChart.svelte";
@@ -7,7 +6,6 @@
 
 	let selectedDevice = null;
 	let showDashboard = false;
-	let rmsMode = false;
 
 	function handleDeviceSelection(event) {
 		selectedDevice = event.detail.deviceId;
@@ -20,7 +18,6 @@
 	function goBackToDeviceSelector() {
 		showDashboard = false;
 		selectedDevice = null;
-		rmsMode = false;
 
 		// Update URL without device parameter
 		history.pushState({}, "", window.location.pathname);
@@ -33,12 +30,7 @@
 		} else {
 			showDashboard = false;
 			selectedDevice = null;
-			rmsMode = false;
 		}
-	}
-
-	function handleRmsModeChange(event) {
-		rmsMode = event.detail.rmsMode;
 	}
 
 	onMount(() => {
@@ -64,21 +56,26 @@
 		<div>
 			<h1 class="dashboard-title">Dashboard Summary</h1>
 		</div>
-
-		<div class="user-info">
-			<ConnectionStatus />
-		</div>
 	</div>
 
 	<DeviceSelector on:deviceSelected={handleDeviceSelection} />
 {:else}
 	<div class="dashboard-content">
-		<div class="chart-section">
-			<TemperatureHumidityChart {selectedDevice} {rmsMode} onBackToDevices={goBackToDeviceSelector} />
-		</div>
-
-		<div class="metrics-section">
-			<MetricCards {selectedDevice} on:rmsModeChange={handleRmsModeChange} />
+		<div class="dashboard-layout">
+			<div class="metrics-column">
+				<button class="back-button" on:click={goBackToDeviceSelector}>&larr; Back to Devices</button>
+				<div class="metrics-sidebar">
+					<MetricCards {selectedDevice} />
+				</div>
+			</div>
+			<div class="charts-column">
+				<div class="chart-section">
+					<TemperatureHumidityChart {selectedDevice} rmsMode={false} />
+				</div>
+				<div class="chart-section">
+					<TemperatureHumidityChart {selectedDevice} rmsMode={true} />
+				</div>
+			</div>
 		</div>
 	</div>
 {/if}
@@ -87,53 +84,89 @@
 	.dashboard-content {
 		display: flex;
 		flex-direction: column;
-		gap: 2rem;
 		width: 100%;
+		height: calc(100vh - 5rem);
+	}
+
+	.dashboard-layout {
+		display: grid;
+		grid-template-columns: 300px 1fr;
+		gap: 1rem;
+		flex: 1;
+		min-height: 0;
+	}
+
+	.metrics-column {
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
+	}
+
+	.back-button {
+		background: none;
+		border: 1px solid var(--border-color);
+		color: var(--text-muted);
+		padding: 0.5rem 1rem;
+		border-radius: 6px;
+		cursor: pointer;
+		font-size: 0.9rem;
+		transition: all 0.2s ease;
+		font-family: inherit;
+		text-align: left;
+		margin-bottom: 0.75rem;
+		flex-shrink: 0;
+	}
+
+	.back-button:hover {
+		border-color: var(--text-muted);
+		color: var(--text-primary);
+	}
+
+	.metrics-sidebar {
+		flex: 1;
+		min-height: 0;
+	}
+
+	.charts-column {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		min-height: 0;
 	}
 
 	.chart-section {
-		width: 100%;
-		max-height: 500px;
-		min-height: 400px;
+		flex: 1;
+		min-height: 0;
 		overflow: hidden;
-		position: relative;
 	}
 
-	.metrics-section {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-		gap: 1rem;
-		width: 100%;
-		align-items: start;
-		margin-top: 1rem;
-	}
-
-	@media (max-width: 1200px) {
-		.metrics-section {
-			grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-		}
-
-		.chart-section {
-			max-height: 450px;
-			min-height: 350px;
-		}
-	}
-
-	@media (max-width: 768px) {
+	/* Mobile layout */
+	@media (max-width: 900px) {
 		.dashboard-content {
-			gap: 1rem;
+			height: auto;
+		}
+
+		.dashboard-layout {
+			grid-template-columns: 1fr;
+		}
+
+		.metrics-column {
+			display: contents;
+		}
+
+		.back-button {
+			order: -1;
+		}
+
+		.metrics-sidebar {
+			display: grid;
+			grid-template-columns: repeat(3, 1fr);
+			gap: 0.5rem;
 		}
 
 		.chart-section {
-			max-height: none;
-			min-height: 250px;
+			min-height: 300px;
 			overflow: visible;
-		}
-
-		.metrics-section {
-			grid-template-columns: 1fr;
-			gap: 0.75rem;
-			margin-top: 0;
 		}
 	}
 </style>

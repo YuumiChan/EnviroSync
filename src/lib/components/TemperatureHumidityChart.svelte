@@ -8,7 +8,6 @@
 	import { createEventDispatcher, onDestroy, onMount } from "svelte";
 
 	export let selectedDevice = "DHT11";
-	export let onBackToDevices = null;
 	export let rmsMode = false;
 
 	const dispatch = createEventDispatcher();
@@ -322,11 +321,7 @@
 
 <div class="chart-container">
 	<div class="chart-header">
-		{#if onBackToDevices}
-			<button class="back-button" on:click={onBackToDevices}>&larr; Back to Devices</button>
-		{:else}
-			<h2>{rmsMode ? ($magnitudeMode ? "Magnitude" : "RMS") : "Temperature & Humidity"}</h2>
-		{/if}
+		<h2>{rmsMode ? ($magnitudeMode ? "Magnitude" : "RMS") : "Temperature & Humidity"}</h2>
 		<div class="time-range-buttons">
 			<button class="time-range-btn" class:active={selectedTimeRange === "day"} on:click={() => changeTimeRange("day")}> Last 24 Hours </button>
 			<button class="time-range-btn" class:active={selectedTimeRange === "week"} on:click={() => changeTimeRange("week")}> Last Week </button>
@@ -343,42 +338,29 @@
 	.chart-container {
 		background: var(--bg-overlay);
 		border-radius: 12px;
-		padding: 1.5rem;
+		padding: 1rem;
 		border: 1px solid var(--border-color);
-		margin-bottom: 2rem;
+		margin-bottom: 0;
 		width: 100%;
+		height: 100%;
+		display: flex;
+		flex-direction: column;
 	}
 
 	.chart-header {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		margin-bottom: 1.5rem;
+		margin-bottom: 0.75rem;
 		flex-wrap: wrap;
-		gap: 1rem;
+		gap: 0.5rem;
+		flex-shrink: 0;
 	}
 
 	h2 {
-		font-size: 1.5rem;
+		font-size: 1.1rem;
 		color: var(--text-primary);
 		margin: 0;
-	}
-
-	.back-button {
-		background: none;
-		border: 1px solid var(--border-color);
-		color: var(--text-muted);
-		padding: 0.5rem 1rem;
-		border-radius: 6px;
-		cursor: pointer;
-		font-size: 0.9rem;
-		transition: all 0.2s ease;
-		font-family: inherit;
-	}
-
-	.back-button:hover {
-		border-color: var(--text-muted);
-		color: var(--text-primary);
 	}
 
 	.time-range-buttons {
@@ -387,14 +369,14 @@
 	}
 
 	.time-range-btn {
-		padding: 0.5rem 1rem;
+		padding: 0.35rem 0.75rem;
 		border: 1px solid var(--border-color);
 		background: var(--bg-overlay);
 		color: var(--text-secondary);
 		border-radius: 6px;
 		cursor: pointer;
 		transition: all 0.2s ease;
-		font-size: 0.9rem;
+		font-size: 0.8rem;
 		font-family: inherit;
 	}
 
@@ -411,7 +393,8 @@
 
 	.chart-wrapper {
 		position: relative;
-		height: 400px;
+		flex: 1;
+		min-height: 0;
 		width: 100%;
 	}
 
@@ -422,7 +405,7 @@
 
 	@media (max-width: 768px) {
 		.chart-container {
-			padding: 1rem;
+			padding: 0.75rem;
 		}
 
 		.chart-header {
@@ -431,7 +414,7 @@
 		}
 
 		.chart-wrapper {
-			height: 300px;
+			height: 280px;
 		}
 
 		.time-range-buttons {
@@ -441,8 +424,8 @@
 
 		.time-range-btn {
 			flex: 1;
-			padding: 0.5rem;
-			font-size: 0.8rem;
+			padding: 0.35rem;
+			font-size: 0.75rem;
 		}
 	}
 </style>

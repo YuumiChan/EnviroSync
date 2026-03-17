@@ -18,8 +18,6 @@
 	let rmsEarthquakeThreshold = 0.05;
 	let weakEarthquakeThreshold = 0.01;
 	let strongEarthquakeThreshold = 0.1;
-	let alwaysShowToast = false;
-
 	let saveSuccess = false;
 	let saveError = "";
 
@@ -186,7 +184,6 @@
 
 		// Apply per-user settings (or fall back to local)
 		const perUser = perUserSettings || localSettings || {};
-		alwaysShowToast = perUser.alwaysShowToast ?? false;
 		magnitudeMode = perUser.magnitudeMode ?? false;
 		darkModeEnabled = perUser.darkMode ?? false;
 
@@ -459,7 +456,6 @@
 			// Per-user settings
 			const perUserSettings = {
 				magnitudeMode,
-				alwaysShowToast,
 				darkMode: darkModeEnabled,
 			};
 
@@ -529,7 +525,6 @@
 		rmsEarthquakeThreshold = 0.05;
 		weakEarthquakeThreshold = 0.01;
 		strongEarthquakeThreshold = 0.1;
-		alwaysShowToast = false;
 	}
 </script>
 
@@ -687,17 +682,6 @@
 				</div>
 			</div>
 		{/if}
-
-		<div class="toggle-setting">
-			<div class="toggle-info">
-				<label for="alwaysShowToast">Always Show Seismic Status</label>
-				<small>When enabled, the sidebar always shows the seismic toast even when status is normal</small>
-			</div>
-			<label class="toggle-switch">
-				<input type="checkbox" id="alwaysShowToast" bind:checked={alwaysShowToast} />
-				<span class="toggle-slider"></span>
-			</label>
-		</div>
 	</div>
 
 	<!-- Device Visibility -->
@@ -861,7 +845,7 @@
 				<svg class="icon" viewBox="0 0 24 24" fill="currentColor">
 					<path d="M12 2C6.48 2 2 4.02 2 6.5v11C2 19.98 6.48 22 12 22s10-2.02 10-4.5v-11C22 4.02 17.52 2 12 2zm0 18c-4.42 0-8-1.79-8-3.5v-2.04c1.76 1.22 4.67 2.04 8 2.04s6.24-.82 8-2.04v2.04c0 1.71-3.58 3.5-8 3.5zm0-5c-4.42 0-8-1.79-8-3.5v-2.04c1.76 1.22 4.67 2.04 8 2.04s6.24-.82 8-2.04v2.04c0 1.71-3.58 3.5-8 3.5zm0-5C7.58 10 4 8.21 4 6.5S7.58 3 12 3s8 1.79 8 3.5S16.42 10 12 10z" />
 				</svg>
-				DATABASE CONFIGURATION
+				WARNING ZONE
 			</h2>
 			<svg class="chevron-icon" class:open={dbConfigOpen} viewBox="0 0 24 24" fill="currentColor">
 				<path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6z" />
@@ -907,7 +891,6 @@
 
 				<!-- RESET EARTHQUAKE -->
 				<div class="db-subsection">
-					<h3>RESET EARTHQUAKE</h3>
 					<button
 						class="btn-danger-action"
 						on:click={() => {
@@ -918,7 +901,6 @@
 
 				<!-- RESET SEVERE CONDITIONS -->
 				<div class="db-subsection">
-					<h3>RESET SEVERE CONDITIONS</h3>
 					<button
 						class="btn-danger-action"
 						on:click={() => {
@@ -929,7 +911,6 @@
 
 				<!-- RESET DATABASE -->
 				<div class="db-subsection">
-					<h3>RESET DATABASE</h3>
 					<button
 						class="btn-danger-action critical"
 						on:click={() => {
@@ -1071,6 +1052,7 @@
 <style>
 	.settings-container {
 		max-width: 1000px;
+		margin: 0 auto;
 		display: flex;
 		flex-direction: column;
 		gap: 2rem;
@@ -1675,17 +1657,17 @@
 	}
 
 	.db-config-content {
-		margin-top: 1.5rem;
+		margin-top: 1rem;
 		display: flex;
 		flex-direction: column;
-		gap: 1.5rem;
+		gap: 0.75rem;
 	}
 
 	.db-subsection {
 		background: var(--bg-hover);
 		border: 1px solid var(--border-color);
 		border-radius: 8px;
-		padding: 1.25rem;
+		padding: 0.75rem;
 	}
 
 	.db-subsection h3 {

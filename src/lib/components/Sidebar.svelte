@@ -2,7 +2,6 @@
 	import { goto } from "$app/navigation";
 	import { page } from "$app/stores";
 	import { sidebarCollapsed } from "$lib/stores.js";
-	import EarthquakeToast from "./EarthquakeToast.svelte";
 
 	let signingOut = false;
 
@@ -52,9 +51,6 @@
 				</svg>
 				<span class="nav-text">Notifications</span>
 			</a>
-		</div>
-
-		<div class="nav-section">
 			<a href="/settings" class="nav-item" class:active={currentRoute === "settings"}>
 				<svg class="nav-icon" viewBox="0 0 24 24" fill="currentColor">
 					<path
@@ -63,6 +59,9 @@
 				</svg>
 				<span class="nav-text">Settings</span>
 			</a>
+		</div>
+
+		<div class="nav-section signout-section">
 			<button class="nav-item" on:click={handleSignOut} disabled={signingOut}>
 				<svg class="nav-icon" viewBox="0 0 24 24" fill="currentColor">
 					<path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z" />
@@ -71,18 +70,16 @@
 			</button>
 		</div>
 	</div>
-
-	<div class="sidebar-bottom">
-		<EarthquakeToast />
-	</div>
 </nav>
 
 <style>
 	.sidebar-top {
 		flex: 1;
+		display: flex;
+		flex-direction: column;
 	}
 
-	.sidebar-bottom {
-		padding-bottom: 1rem;
+	.signout-section {
+		margin-top: auto;
 	}
 </style>

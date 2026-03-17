@@ -1,16 +1,19 @@
 <script>
 	import { localNow } from "$lib/config.js";
 	import { getHiddenDeviceIds } from "$lib/deviceFilter.js";
+	import { rmsToMagnitude } from "$lib/magnitude.js";
 	import { getDeviceColumnName, getQuotedColumn, getTableName } from "$lib/questdbHelpers.js";
+	import { magnitudeMode } from "$lib/stores.js";
 	import { onMount } from "svelte";
 
-	let severeEvents = [];
+	let tempRanges = [];
+	let humidRanges = [];
 	let earthquakeEvents = [];
 	let loading = true;
 
-	// Show more states
 	let showAllEarthquake = false;
-	let showAllSevere = false;
+	let showAllTemp = false;
+	let showAllHumid = false;
 
 	function groupIntoEvents(dataset, gapMs = 10 * 60 * 1000) {
 		if (!dataset || dataset.length === 0) return [];
@@ -36,9 +39,45 @@
 		return events;
 	}
 
+	/**
+	 * Group severe condition rows into ranges.
+	 * Consecutive rows within gapMs are merged into a single range.
+	 * If the latest row is within recentMs of now, the end is marked "now".
+	 */
+	function groupSevereIntoRanges(rows, gapMs = 10 * 60 * 1000, recentMs = 5 * 60 * 1000) {
+		if (!rows || rows.length === 0) return [];
+
+		// Sort ascending by time
+		const sorted = [...rows].sort((a, b) => a.time.getTime() - b.time.getTime());
+
+		const ranges = [];
+		let cur = null;
+
+		for (const row of sorted) {
+			if (!cur || row.time.getTime() - cur.end.getTime() > gapMs || row.device !== cur.device) {
+				if (cur) ranges.push(cur);
+				cur = { start: row.time, end: row.time, device: row.device, peakValue: row.value };
+			} else {
+				cur.end = row.time;
+				cur.peakValue = Math.max(cur.peakValue, row.value);
+			}
+		}
+		if (cur) ranges.push(cur);
+
+		const now = new Date();
+		for (const range of ranges) {
+			range.isOngoing = now.getTime() - range.end.getTime() < recentMs;
+		}
+
+		// Sort newest first
+		ranges.sort((a, b) => b.start.getTime() - a.start.getTime());
+
+		return ranges;
+	}
+
 	async function fetchNotifications() {
 		try {
-			const isInitialLoad = severeEvents.length === 0 && earthquakeEvents.length === 0;
+			const isInitialLoad = tempRanges.length === 0 && humidRanges.length === 0 && earthquakeEvents.length === 0;
 			if (isInitialLoad) {
 				loading = true;
 			}
@@ -46,20 +85,23 @@
 			const deviceCol = getQuotedColumn(deviceColName);
 			const tableName = getTableName();
 
-			const savedSettings = localStorage.getItem("enviroSyncSettings");
-			const settings = savedSettings
-				? JSON.parse(savedSettings)
-				: {
-						tempSevere: 40,
-						humidSevere: 90,
-						weakEarthquakeThreshold: 0.01,
-						strongEarthquakeThreshold: 0.1,
-					};
+			const sharedRaw = localStorage.getItem("enviroSyncSharedSettings");
+			const legacyRaw = localStorage.getItem("enviroSyncSettings");
+			const shared = sharedRaw ? JSON.parse(sharedRaw) : {};
+			const legacy = legacyRaw ? JSON.parse(legacyRaw) : {};
+			const settings = {
+				tempSevere: shared.tempSevere ?? legacy.tempSevere ?? 40,
+				humidSevere: shared.humidSevere ?? legacy.humidSevere ?? 90,
+				weakEarthquakeThreshold: shared.weakEarthquakeThreshold ?? legacy.weakEarthquakeThreshold ?? 0.01,
+				strongEarthquakeThreshold: shared.strongEarthquakeThreshold ?? legacy.strongEarthquakeThreshold ?? 0.1,
+			};
 
 			const hiddenIds = getHiddenDeviceIds();
 			const hiddenFilter = hiddenIds.length > 0 ? `AND ${deviceCol} NOT IN (${hiddenIds.map((id) => `'${id}'`).join(",")})` : "";
 
-			const severeQuery = `SELECT ts, ${deviceCol} as device, temp, humid FROM ${tableName} WHERE (temp > ${settings.tempSevere} OR humid > ${settings.humidSevere}) ${hiddenFilter} AND ts > dateadd('d', -7, ${localNow()}) ORDER BY ts DESC LIMIT 50`;
+			const tempQuery = `SELECT ts, ${deviceCol} as device, temp FROM ${tableName} WHERE temp > ${settings.tempSevere} ${hiddenFilter} AND ts > dateadd('d', -7, ${localNow()}) ORDER BY ts DESC LIMIT 200`;
+
+			const humidQuery = `SELECT ts, ${deviceCol} as device, humid FROM ${tableName} WHERE humid > ${settings.humidSevere} ${hiddenFilter} AND ts > dateadd('d', -7, ${localNow()}) ORDER BY ts DESC LIMIT 200`;
 
 			const earthquakeQuery = `
 				SELECT timestamp_floor('5m', ts) as bucket, MAX(rms) as peak_rms
@@ -69,23 +111,38 @@
 				ORDER BY bucket ASC
 			`;
 
-			const [severeResponse, earthquakeResponse] = await Promise.all([fetch(`/api/questdb?query=${encodeURIComponent(severeQuery)}`), fetch(`/api/questdb?query=${encodeURIComponent(earthquakeQuery)}`)]);
+			const [tempResponse, humidResponse, earthquakeResponse] = await Promise.all([fetch(`/api/questdb?query=${encodeURIComponent(tempQuery)}`), fetch(`/api/questdb?query=${encodeURIComponent(humidQuery)}`), fetch(`/api/questdb?query=${encodeURIComponent(earthquakeQuery)}`)]);
 
-			if (severeResponse.ok) {
-				const result = await severeResponse.json();
+			if (tempResponse.ok) {
+				const result = await tempResponse.json();
 				if (result.dataset && result.dataset.length > 0) {
-					severeEvents = result.dataset.map(([ts, device, temp, humid]) => {
-						const timestampStr = String(ts).replace("Z", "");
-						return {
-							time: new Date(timestampStr),
-							device,
-							temp: parseFloat(temp).toFixed(2),
-							humid: parseFloat(humid).toFixed(1),
-						};
-					});
+					const rows = result.dataset.map(([ts, device, temp]) => ({
+						time: new Date(String(ts).replace("Z", "")),
+						device,
+						value: parseFloat(temp),
+					}));
+					tempRanges = groupSevereIntoRanges(rows);
 				} else {
-					severeEvents = [];
+					tempRanges = [];
 				}
+			} else {
+				console.warn("Temp query failed with status:", tempResponse.status);
+			}
+
+			if (humidResponse.ok) {
+				const result = await humidResponse.json();
+				if (result.dataset && result.dataset.length > 0) {
+					const rows = result.dataset.map(([ts, device, humid]) => ({
+						time: new Date(String(ts).replace("Z", "")),
+						device,
+						value: parseFloat(humid),
+					}));
+					humidRanges = groupSevereIntoRanges(rows);
+				} else {
+					humidRanges = [];
+				}
+			} else {
+				console.warn("Humid query failed with status:", humidResponse.status);
 			}
 
 			if (earthquakeResponse.ok) {
@@ -132,6 +189,16 @@
 		});
 	}
 
+	function formatShortDateTime(date) {
+		return date.toLocaleString("en-US", {
+			month: "short",
+			day: "numeric",
+			hour: "numeric",
+			minute: "2-digit",
+			hour12: true,
+		});
+	}
+
 	function formatRelativeTime(date) {
 		const now = new Date();
 		const diff = now - date;
@@ -148,7 +215,16 @@
 	onMount(() => {
 		fetchNotifications();
 		const interval = setInterval(fetchNotifications, 30000);
-		return () => clearInterval(interval);
+		// Retry sooner if initial load fails
+		const retryTimeout = setTimeout(() => {
+			if (tempRanges.length === 0 && humidRanges.length === 0 && earthquakeEvents.length === 0) {
+				fetchNotifications();
+			}
+		}, 3000);
+		return () => {
+			clearInterval(interval);
+			clearTimeout(retryTimeout);
+		};
 	});
 </script>
 
@@ -163,20 +239,20 @@
 	</div>
 {:else}
 	<div class="notifications-grid">
-		<!-- Earthquake Detections -->
+		<!-- Earthquake -->
 		<div class="notification-section earthquake">
 			<div class="section-header">
 				<h2>
 					<svg class="icon" viewBox="0 0 24 24" fill="currentColor">
 						<path d="M15.54 5.54L13.77 7.3 12 5.54 10.23 7.3 8.46 5.54 12 2zm5.23 5.23l-1.77-1.77L15.54 12l3.46 3.46 1.77-1.77-3.46-3.46zM8.46 18.46L12 22l3.54-3.54L13.77 16.7 12 18.46l-1.77-1.76zm-5.23-5.23L1.46 12l1.77 1.77L6.69 10.23 3.23 13.23z" />
 					</svg>
-					Earthquake Detections
+					Earthquake
 				</h2>
 				<span class="count">{earthquakeEvents.length}</span>
 			</div>
 			<div class="events-list">
 				{#if earthquakeEvents.length === 0}
-					<div class="no-events">No earthquake detections in the last 7 days</div>
+					<div class="no-events">No earthquake events in the last 7 days</div>
 				{:else}
 					{#each showAllEarthquake ? earthquakeEvents : earthquakeEvents.slice(0, 3) as event}
 						<div class="event-item">
@@ -184,7 +260,7 @@
 								<span class="intensity-badge {event.intensity.toLowerCase()}">{event.intensity}</span>
 								<span class="event-time">{formatDateTime(event.time)}</span>
 							</div>
-							<div class="metric">Peak Magnitude: {event.rms}g</div>
+							<div class="metric">Peak {$magnitudeMode ? "Magnitude" : "RMS"}: {$magnitudeMode ? rmsToMagnitude(parseFloat(event.rms)).toFixed(1) + " Mag" : event.rms + "g"}</div>
 							<div class="event-relative">{formatRelativeTime(event.time)}</div>
 						</div>
 					{/each}
@@ -197,35 +273,72 @@
 			</div>
 		</div>
 
-		<!-- Severe Conditions -->
-		<div class="notification-section severe">
+		<!-- Temperature -->
+		<div class="notification-section temperature">
 			<div class="section-header">
 				<h2>
 					<svg class="icon" viewBox="0 0 24 24" fill="currentColor">
-						<path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z" />
+						<path d="M15 13V5c0-1.66-1.34-3-3-3S9 3.34 9 5v8c-1.21.91-2 2.37-2 4 0 2.76 2.24 5 5 5s5-2.24 5-5c0-1.63-.79-3.09-2-4zm-4-8c0-.55.45-1 1-1s1 .45 1 1h-1v1h1v2h-1v1h1v2h-2V5z" />
 					</svg>
-					Severe Conditions
+					Temperature
 				</h2>
-				<span class="count">{severeEvents.length}</span>
+				<span class="count">{tempRanges.length}</span>
 			</div>
 			<div class="events-list">
-				{#if severeEvents.length === 0}
-					<div class="no-events">No severe conditions in the last 7 days</div>
+				{#if tempRanges.length === 0}
+					<div class="no-events">No severe temperature in the last 7 days</div>
 				{:else}
-					{#each showAllSevere ? severeEvents : severeEvents.slice(0, 3) as event}
+					{#each showAllTemp ? tempRanges : tempRanges.slice(0, 3) as range}
 						<div class="event-item">
-							<div class="event-time">{formatDateTime(event.time)}</div>
 							<div class="event-details">
-								<span class="device-badge">{event.device}</span>
-								<span class="metric">Temp: {event.temp}°C</span>
-								<span class="metric">Humid: {event.humid}%</span>
+								<span class="device-badge">{range.device}</span>
+								<span class="metric">Peak: {range.peakValue.toFixed(2)}°C</span>
 							</div>
-							<div class="event-relative">{formatRelativeTime(event.time)}</div>
+							<div class="event-time">
+								{formatShortDateTime(range.start)} — {range.isOngoing ? "now" : formatShortDateTime(range.end)}
+							</div>
+							<div class="event-relative">{range.isOngoing ? "Ongoing" : formatRelativeTime(range.start)}</div>
 						</div>
 					{/each}
-					{#if severeEvents.length > 3}
-						<button class="show-more-btn" on:click={() => (showAllSevere = !showAllSevere)}>
-							{showAllSevere ? "Show Less" : `Show More (${severeEvents.length - 3} more)`}
+					{#if tempRanges.length > 3}
+						<button class="show-more-btn" on:click={() => (showAllTemp = !showAllTemp)}>
+							{showAllTemp ? "Show Less" : `Show More (${tempRanges.length - 3} more)`}
+						</button>
+					{/if}
+				{/if}
+			</div>
+		</div>
+
+		<!-- Humidity -->
+		<div class="notification-section humidity">
+			<div class="section-header">
+				<h2>
+					<svg class="icon" viewBox="0 0 24 24" fill="currentColor">
+						<path d="M12 2c-5.33 4.55-8 8.48-8 11.8 0 4.98 3.8 8.2 8 8.2s8-3.22 8-8.2c0-3.32-2.67-7.25-8-11.8zm0 18c-3.35 0-6-2.57-6-6.2 0-2.34 1.95-5.44 6-9.14 4.05 3.7 6 6.79 6 9.14 0 3.63-2.65 6.2-6 6.2z" />
+					</svg>
+					Humidity
+				</h2>
+				<span class="count">{humidRanges.length}</span>
+			</div>
+			<div class="events-list">
+				{#if humidRanges.length === 0}
+					<div class="no-events">No severe humidity in the last 7 days</div>
+				{:else}
+					{#each showAllHumid ? humidRanges : humidRanges.slice(0, 3) as range}
+						<div class="event-item">
+							<div class="event-details">
+								<span class="device-badge">{range.device}</span>
+								<span class="metric">Peak: {range.peakValue.toFixed(1)}%</span>
+							</div>
+							<div class="event-time">
+								{formatShortDateTime(range.start)} — {range.isOngoing ? "now" : formatShortDateTime(range.end)}
+							</div>
+							<div class="event-relative">{range.isOngoing ? "Ongoing" : formatRelativeTime(range.start)}</div>
+						</div>
+					{/each}
+					{#if humidRanges.length > 3}
+						<button class="show-more-btn" on:click={() => (showAllHumid = !showAllHumid)}>
+							{showAllHumid ? "Show Less" : `Show More (${humidRanges.length - 3} more)`}
 						</button>
 					{/if}
 				{/if}
@@ -275,7 +388,7 @@
 
 	.notifications-grid {
 		display: grid;
-		gap: 2rem;
+		gap: 1.5rem;
 	}
 
 	.notification-section {
@@ -289,16 +402,20 @@
 		border-left-color: var(--accent-purple);
 	}
 
-	.notification-section.severe {
+	.notification-section.temperature {
 		border-left-color: var(--accent-red, #e65050);
+	}
+
+	.notification-section.humidity {
+		border-left-color: var(--accent-blue);
 	}
 
 	.section-header {
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		margin-bottom: 1.5rem;
-		padding-bottom: 1rem;
+		margin-bottom: 1rem;
+		padding-bottom: 0.75rem;
 		border-bottom: 1px solid var(--border-color);
 	}
 
@@ -328,23 +445,23 @@
 	.events-list {
 		display: flex;
 		flex-direction: column;
-		gap: 1rem;
+		gap: 0.75rem;
 	}
 
 	.no-events {
 		text-align: center;
-		padding: 2rem;
+		padding: 1.5rem;
 		color: var(--text-muted);
 		font-style: italic;
 	}
 
 	.event-item {
 		background: var(--bg-hover);
-		padding: 1rem;
+		padding: 0.75rem 1rem;
 		border-radius: 8px;
 		display: flex;
 		flex-direction: column;
-		gap: 0.5rem;
+		gap: 0.35rem;
 		transition: background 0.2s;
 	}
 
@@ -353,7 +470,7 @@
 	}
 
 	.event-time {
-		font-size: 0.95rem;
+		font-size: 0.9rem;
 		color: var(--text-secondary);
 		font-weight: 500;
 	}
@@ -361,24 +478,24 @@
 	.event-details {
 		display: flex;
 		align-items: center;
-		gap: 1rem;
+		gap: 0.75rem;
 		flex-wrap: wrap;
 	}
 
 	.device-badge {
 		background: rgba(57, 158, 230, 0.15);
 		color: var(--accent-blue);
-		padding: 0.3rem 0.8rem;
+		padding: 0.2rem 0.6rem;
 		border-radius: 6px;
 		font-weight: 600;
-		font-size: 0.9rem;
+		font-size: 0.85rem;
 	}
 
 	.intensity-badge {
-		padding: 0.3rem 0.8rem;
+		padding: 0.2rem 0.6rem;
 		border-radius: 6px;
 		font-weight: 600;
-		font-size: 0.9rem;
+		font-size: 0.85rem;
 		text-transform: uppercase;
 	}
 
@@ -399,17 +516,17 @@
 
 	.metric {
 		color: var(--text-muted);
-		font-size: 0.9rem;
+		font-size: 0.85rem;
 	}
 
 	.show-more-btn {
 		width: 100%;
-		padding: 0.75rem;
+		padding: 0.6rem;
 		background: rgba(57, 158, 230, 0.08);
 		border: 1px solid rgba(57, 158, 230, 0.25);
 		color: var(--accent-blue);
 		border-radius: 6px;
-		font-size: 0.9rem;
+		font-size: 0.85rem;
 		font-weight: 500;
 		cursor: pointer;
 		transition: all 0.2s;
@@ -422,13 +539,13 @@
 	}
 
 	.event-relative {
-		font-size: 0.85rem;
+		font-size: 0.8rem;
 		color: var(--text-muted);
 	}
 
 	@media (max-width: 768px) {
 		.notifications-grid {
-			gap: 1.5rem;
+			gap: 1rem;
 		}
 
 		.notification-section {
