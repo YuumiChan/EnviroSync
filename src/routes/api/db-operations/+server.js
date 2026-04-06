@@ -52,9 +52,8 @@ export async function POST({ locals, request }) {
 				return json({ error: "thresholds are required" }, { status: 400 });
 			}
 
-			// Remove rows where quake_flag = 2 (earthquake data beyond threshold)
 			const tempTable = `${TABLE_NAME}_temp_${Date.now()}`;
-			await questdbExec(`CREATE TABLE '${tempTable}' AS (SELECT * FROM '${TABLE_NAME}' WHERE NOT (quake_flag = 2 AND rms >= ${parseFloat(thresholds.rmsEarthquakeThreshold)})) timestamp(ts) PARTITION BY DAY`);
+			await questdbExec(`CREATE TABLE '${tempTable}' AS (SELECT * FROM '${TABLE_NAME}' WHERE NOT (quake_flag = 1 or quake_flag = 2 or rms >= ${parseFloat(thresholds.rmsEarthquakeThreshold)})) timestamp(ts) PARTITION BY DAY`);
 
 			const backupTable = `${TABLE_NAME}_backup_${Date.now()}`;
 			await questdbExec(`RENAME TABLE '${TABLE_NAME}' TO '${backupTable}'`);
